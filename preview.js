@@ -1,5 +1,7 @@
 import { getConversionJob } from './preview-storage.js';
 
+window.__dazenPreviewBooted = true;
+
 const params = new URLSearchParams(location.search);
 const jobId = params.get('job');
 
@@ -21,6 +23,9 @@ const refs = {
   list: document.querySelector('#comparison-list'),
   empty: document.querySelector('#comparison-empty'),
   footnote: document.querySelector('#preview-footnote'),
+  errorTitle: document.querySelector('#preview-error-title'),
+  errorDetail: document.querySelector('#preview-error-detail'),
+  retry: document.querySelector('#preview-retry'),
 };
 
 let job = null;
@@ -28,6 +33,7 @@ let activeCategory = 'All';
 let query = '';
 const objectUrls = new Set();
 
+refs.retry?.addEventListener('click', () => location.reload());
 init();
 
 async function init() {
@@ -42,16 +48,30 @@ async function init() {
     renderRows();
     refs.loading.hidden = true;
     refs.content.hidden = false;
+    window.__dazenPreviewReady = true;
   } catch (error) {
     console.error(error);
-    showMissing();
+    showMissing(error);
   }
 }
 
-function showMissing() {
+function showMissing(error = null) {
   refs.loading.hidden = true;
   refs.content.hidden = true;
   refs.missing.hidden = false;
+  window.__dazenPreviewReady = false;
+
+  if (error) {
+    refs.errorTitle.textContent = 'Could not load conversion preview';
+    refs.errorDetail.textContent =
+      error?.message ||
+      'The locally stored preview could not be read. Try reloading or return to the converter and run the conversion again.';
+    return;
+  }
+
+  refs.errorTitle.textContent = 'Conversion preview not found';
+  refs.errorDetail.textContent =
+    'This preview may have been cleared by the browser, opened on another device, or replaced by newer conversions.';
 }
 
 function renderHeader() {
