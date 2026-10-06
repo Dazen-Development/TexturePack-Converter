@@ -338,9 +338,47 @@ export async function convertPack({
     ...(customItemsResult?.previewEntries || []),
     ...(fontsResult?.previewEntries || []),
   ];
+
   const enhancedSourcePaths = new Set(
-    enhancedPreview.map(entry => entry.sourcePath).filter(Boolean)
+    enhancedPreview
+      .map(entry => entry.sourcePath)
+      .filter(Boolean)
   );
+
+  // Generic path conversion runs before the specialized item/font modules.
+  // If a specialized module successfully handles a PNG that generic mapping
+  // originally marked as skipped, it is NOT a real skip and must not remain
+  // in the final stats/report.
+  const rescuedGenericPaths = new Set(
+    genericPreviewEntries
+      .filter(
+        entry =>
+          entry.status === 'skipped' &&
+          enhancedSourcePaths.has(entry.sourcePath)
+      )
+      .map(entry => entry.sourcePath)
+  );
+
+  if (rescuedGenericPaths.size) {
+    stats.skipped = Math.max(
+      0,
+      stats.skipped - rescuedGenericPaths.size
+    );
+
+    for (let i = skipped.length - 1; i >= 0; i--) {
+      const sourcePath =
+        skipped[i].split(' — ')[0];
+      if (rescuedGenericPaths.has(sourcePath)) {
+        skipped.splice(i, 1);
+      }
+    }
+
+    onLog(
+      'info',
+      `Specialized item/font mapping resolved ${rescuedGenericPaths.size} file(s) that generic path mapping initially marked as having no target.`
+    );
+  }
+
   const previewEntries = [
     ...enhancedPreview,
     ...genericPreviewEntries.filter(
@@ -418,6 +456,7 @@ export async function convertPack({
       fontsConverted: stats.fontGlyphs,
       fontPages: Number(fontsResult?.pages || 0),
       unresolvedFonts: Number(fontsResult?.unresolved || 0),
+      autoAssignedFonts: Number(fontsResult?.autoAssigned || 0),
       adapterPlugins: inspection.adapter?.plugins || [],
     },
   };
