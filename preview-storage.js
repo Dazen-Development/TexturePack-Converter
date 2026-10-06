@@ -2,141 +2,201 @@ const DB_NAME = 'dazen-texture-converter';
 const DB_VERSION = 1;
 const STORE = 'conversion-jobs';
 const MAX_SAVED_JOBS = 3;
+
 const OPEN_TIMEOUT_MS = 8000;
 const READ_TIMEOUT_MS = 12000;
 const WRITE_TIMEOUT_MS = 30000;
+const VERIFY_TIMEOUT_MS = 5000;
 
-function timeoutError(message) {
+function makeTimeoutError(message) {
   const error = new Error(message);
   error.name = 'TimeoutError';
   return error;
 }
 
-function withTimeout(promise, ms, message) {
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(timeoutError(message)), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
-
 function openDb() {
-  if (!globalThis.indexedDB) {
-    return Promise.reject(
-      new Error('Local browser storage (IndexedDB) is unavailable in this browser/context.')
-    );
-  }
+  return new Promise((resolve, reject) => {
+    if (!globalThis.indexedDB) {
+      reject(
+        new Error(
+          'Local browser storage (IndexedDB) is unavailable in this browser/context.'
+        )
+      );
+      return;
+    }
 
-  return withTimeout(
-    new Promise((resolve, reject) => {
-      let settled = false;
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+    let settled = false;
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(
+        makeTimeoutError(
+          'Local preview storage did not respond in time.'
+        )
+      );
+    }, OPEN_TIMEOUT_MS);
 
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(STORE)) {
-          const store = db.createObjectStore(STORE, { keyPath: 'id' });
-          store.createIndex('createdAt', 'createdAt');
-        }
-      };
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, {
+          keyPath: 'id',
+        });
+        store.createIndex('createdAt', 'createdAt');
+      }
+    };
 
-      request.onsuccess = () => {
-        if (settled) {
-          request.result?.close();
-          return;
-        }
-        settled = true;
-        const db = request.result;
-        db.onversionchange = () => db.close();
-        resolve(db);
-      };
+    request.onsuccess = () => {
+      if (settled) {
+        request.result?.close();
+        return;
+      }
 
-      request.onerror = () => {
-        if (settled) return;
-        settled = true;
-        reject(
-          request.error ||
-          new Error('Unable to open local conversion-preview storage.')
-        );
-      };
+      settled = true;
+      clearTimeout(timer);
 
-      request.onblocked = () => {
-        if (settled) return;
-        settled = true;
-        reject(
+      const db = request.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
+
+    request.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(
+        request.error ||
           new Error(
-            'Local preview storage is blocked by another open tab. Close other converter tabs and try again.'
+            'Unable to open local conversion-preview storage.'
           )
-        );
-      };
-    }),
-    OPEN_TIMEOUT_MS,
-    'Local preview storage did not respond in time.'
-  );
+      );
+    };
+
+    request.onblocked = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(
+        new Error(
+          'Local preview storage is blocked by another converter tab. Close the other converter tabs and try again.'
+        )
+      );
+    };
+  });
 }
 
-function runTransaction(db, mode, operation, timeoutMs, timeoutMessage) {
-  return withTimeout(
-    new Promise((resolve, reject) => {
-      let tx;
-      try {
-        tx = db.transaction(STORE, mode);
-      } catch (error) {
-        reject(error);
-        return;
-      }
+function transactionWithTimeout({
+  db,
+  mode,
+  timeoutMs,
+  timeoutMessage,
+  start,
+}) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let tx;
 
-      let result;
-      try {
-        result = operation(tx.objectStore(STORE), tx);
-      } catch (error) {
-        try { tx.abort(); } catch {}
-        reject(error);
-        return;
-      }
+    try {
+      tx = db.transaction(STORE, mode);
+    } catch (error) {
+      reject(error);
+      return;
+    }
 
-      tx.oncomplete = () => resolve(result?.value);
-      tx.onerror = () =>
-        reject(tx.error || new Error('Local preview-storage transaction failed.'));
-      tx.onabort = () =>
-        reject(tx.error || new Error('Local preview-storage transaction was aborted.'));
-    }),
-    timeoutMs,
-    timeoutMessage
-  );
+    const finish = callback => value => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback(value);
+    };
+
+    const resolveOnce = finish(resolve);
+    const rejectOnce = finish(reject);
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      try {
+        tx.abort();
+      } catch {}
+      rejectOnce(makeTimeoutError(timeoutMessage));
+    }, timeoutMs);
+
+    tx.onerror = () =>
+      rejectOnce(
+        tx.error ||
+          new Error(
+            'Local preview-storage transaction failed.'
+          )
+      );
+
+    tx.onabort = () => {
+      if (settled) return;
+      rejectOnce(
+        tx.error ||
+          new Error(
+            'Local preview-storage transaction was aborted.'
+          )
+      );
+    };
+
+    try {
+      start({
+        store: tx.objectStore(STORE),
+        tx,
+        resolve: resolveOnce,
+        reject: rejectOnce,
+      });
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {}
+      rejectOnce(error);
+    }
+  });
 }
 
 export async function saveConversionJob(job) {
   const db = await openDb();
 
   try {
-    await runTransaction(
+    await transactionWithTimeout({
       db,
-      'readwrite',
-      store => {
-        store.put(job);
-        return { value: job.id };
-      },
-      WRITE_TIMEOUT_MS,
-      'Saving the conversion preview took too long. The output pack is still available for direct download.'
-    );
+      mode: 'readwrite',
+      timeoutMs: WRITE_TIMEOUT_MS,
+      timeoutMessage:
+        'Saving the conversion preview took too long. The converted pack is still available for direct download.',
+      start: ({ store, tx, resolve, reject }) => {
+        const request = store.put(job);
 
-    // Cleanup must never make an otherwise successful save look like a failure.
+        request.onerror = () =>
+          reject(
+            request.error ||
+              new Error(
+                'Unable to save the conversion preview.'
+              )
+          );
+
+        tx.oncomplete = () => resolve(job.id);
+      },
+    });
+
+    // Cleanup uses keys only. Never clone previous output blobs simply to
+    // decide which old jobs should be removed.
     try {
-      await withTimeout(
-        pruneOldJobs(db),
-        5000,
-        'Preview cleanup timed out.'
-      );
+      await pruneOldJobs(db);
     } catch (error) {
-      console.warn('[Dazen/PreviewStorage] Cleanup skipped:', error);
+      console.warn(
+        '[Dazen/PreviewStorage] Old-preview cleanup skipped:',
+        error
+      );
     }
 
     return job.id;
   } finally {
-    try { db.close(); } catch {}
+    try {
+      db.close();
+    } catch {}
   }
 }
 
@@ -146,96 +206,131 @@ export async function getConversionJob(id) {
   const db = await openDb();
 
   try {
-    return await withTimeout(
-      new Promise((resolve, reject) => {
-        let tx;
-        try {
-          tx = db.transaction(STORE, 'readonly');
-        } catch (error) {
-          reject(error);
-          return;
-        }
+    return await transactionWithTimeout({
+      db,
+      mode: 'readonly',
+      timeoutMs: READ_TIMEOUT_MS,
+      timeoutMessage:
+        'Reading this conversion preview took too long. The browser may be blocking or struggling with local storage.',
+      start: ({ store, resolve, reject }) => {
+        const request = store.get(id);
 
-        const request = tx.objectStore(STORE).get(id);
+        request.onsuccess = () =>
+          resolve(request.result || null);
 
-        request.onsuccess = () => resolve(request.result || null);
         request.onerror = () =>
           reject(
             request.error ||
-            new Error('Unable to read the locally stored conversion preview.')
+              new Error(
+                'Unable to read the locally stored conversion preview.'
+              )
           );
-
-        tx.onabort = () =>
-          reject(
-            tx.error ||
-            new Error('Reading the conversion preview was aborted.')
-          );
-      }),
-      READ_TIMEOUT_MS,
-      'Reading this conversion preview took too long. The browser may be blocking or struggling with local storage.'
-    );
+      },
+    });
   } finally {
-    try { db.close(); } catch {}
+    try {
+      db.close();
+    } catch {}
   }
 }
 
 export async function hasConversionJob(id) {
   if (!id) return false;
+
   const db = await openDb();
 
   try {
-    return await withTimeout(
-      new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE, 'readonly');
-        const store = tx.objectStore(STORE);
-        const request =
-          typeof store.getKey === 'function'
-            ? store.getKey(id)
-            : store.get(id);
+    return await transactionWithTimeout({
+      db,
+      mode: 'readonly',
+      timeoutMs: VERIFY_TIMEOUT_MS,
+      timeoutMessage:
+        'Preview verification timed out.',
+      start: ({ store, resolve, reject }) => {
+        // count(key) checks existence without cloning the heavy job value.
+        const request = store.count(id);
 
-        request.onsuccess = () => resolve(request.result != null);
-        request.onerror = () => reject(request.error);
-        tx.onabort = () => reject(tx.error);
-      }),
-      5000,
-      'Preview verification timed out.'
-    );
+        request.onsuccess = () =>
+          resolve(Number(request.result || 0) > 0);
+
+        request.onerror = () =>
+          reject(
+            request.error ||
+              new Error(
+                'Unable to verify the saved preview.'
+              )
+          );
+      },
+    });
   } finally {
-    try { db.close(); } catch {}
+    try {
+      db.close();
+    } catch {}
   }
 }
 
 async function pruneOldJobs(db) {
-  const jobs = await new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly');
-    const request = tx.objectStore(STORE).getAll();
+  if (!db.objectStoreNames.contains(STORE)) return;
 
-    request.onsuccess = () => resolve(request.result || []);
-    request.onerror = () => reject(request.error);
-    tx.onabort = () => reject(tx.error);
+  const staleIds = await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const store = tx.objectStore(STORE);
+
+    if (!store.indexNames.contains('createdAt')) {
+      resolve([]);
+      return;
+    }
+
+    const index = store.index('createdAt');
+
+    // openKeyCursor reads only index/primary keys and does not structured-clone
+    // the huge job values containing the output archive and PNG blobs.
+    if (typeof index.openKeyCursor !== 'function') {
+      resolve([]);
+      return;
+    }
+
+    const ids = [];
+    let seen = 0;
+    const request = index.openKeyCursor(null, 'prev');
+
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve(ids);
+        return;
+      }
+
+      if (seen >= MAX_SAVED_JOBS) {
+        ids.push(cursor.primaryKey);
+      }
+
+      seen++;
+      cursor.continue();
+    };
+
+    request.onerror = () =>
+      reject(request.error || new Error('Cleanup cursor failed.'));
+
+    tx.onabort = () =>
+      reject(tx.error || new Error('Cleanup scan was aborted.'));
   });
 
-  const stale = jobs
-    .sort(
-      (a, b) =>
-        Number(b.createdAt || 0) -
-        Number(a.createdAt || 0)
-    )
-    .slice(MAX_SAVED_JOBS);
-
-  if (!stale.length) return;
+  if (!staleIds.length) return;
 
   await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
 
-    for (const job of stale) {
-      store.delete(job.id);
+    for (const id of staleIds) {
+      store.delete(id);
     }
 
     tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onerror = () =>
+      reject(tx.error || new Error('Old-preview cleanup failed.'));
+    tx.onabort = () =>
+      reject(tx.error || new Error('Old-preview cleanup was aborted.'));
   });
 }
 
