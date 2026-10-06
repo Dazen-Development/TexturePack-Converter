@@ -620,9 +620,18 @@ function writeAutoAssignmentPatches(output, assignments) {
       );
     }
 
+    const iaConfig = ia.join('\n') + '\n';
+
     output.file(
       `integrations/ItemsAdder/contents/${namespace}/configs/dazen_auto_assigned_font_images.yml`,
-      ia.join('\n') + '\n'
+      iaConfig
+    );
+
+    // Legacy / alternate ItemsAdder architecture:
+    // data/items_packs/<namespace>/*.yml + data/resource_pack/assets/...
+    output.file(
+      `integrations/ItemsAdder/data/items_packs/${namespace}/dazen_auto_assigned_font_images.yml`,
+      iaConfig
     );
 
     output.file(
@@ -1047,6 +1056,11 @@ export async function convertBedrockFontsToJava({
         `integrations/ItemsAdder/contents/dazen_converted/textures/font/${fileName}`,
         cropped.blob
       );
+
+      output.file(
+        `integrations/ItemsAdder/data/resource_pack/assets/dazen_converted/textures/font/${fileName}`,
+        cropped.blob
+      );
       output.file(
         `integrations/Nexo/pack/assets/dazen/textures/font/${fileName}`,
         cropped.blob
@@ -1140,14 +1154,21 @@ export async function convertBedrockFontsToJava({
       JSON.stringify({ providers }, null, 2)
     );
 
+    const iaFontConfig = [
+      'info:',
+      '  namespace: dazen_converted',
+      'font_images:',
+      ...iaGlyphs,
+    ].join('\n') + '\n';
+
     output.file(
       'integrations/ItemsAdder/contents/dazen_converted/configs/dazen_fonts.yml',
-      [
-        'info:',
-        '  namespace: dazen_converted',
-        'font_images:',
-        ...iaGlyphs,
-      ].join('\n') + '\n'
+      iaFontConfig
+    );
+
+    output.file(
+      'integrations/ItemsAdder/data/items_packs/dazen_converted/dazen_fonts.yml',
+      iaFontConfig
     );
 
     output.file(
