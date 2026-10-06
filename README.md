@@ -32,6 +32,7 @@ The scanner accepts:
    - `contents/<namespace>/configs/*.yml`
    - `contents/<namespace>/resourcepack/assets/...`
    - direct `contents/<namespace>/textures/...` layouts used by font-image packs
+   - alternate `data/items_packs/<namespace>/*.yml` + `data/resource_pack/assets/...` architecture
    - simple root `configs/ + textures/` vendor layouts
 
 3. Nexo source/vendor bundles:
@@ -104,12 +105,19 @@ It also generates integration helpers for all three supported Java content plugi
 
 ### ItemsAdder
 
+The converter generates both known source layouts:
+
 ```text
 integrations/ItemsAdder/
-└── contents/dazen_converted/
-    ├── configs/
-    └── resourcepack/assets/dazen/
+├── contents/dazen_converted/
+│   ├── configs/
+│   └── resourcepack/assets/dazen/
+└── data/
+    ├── items_packs/dazen_converted/
+    └── resource_pack/assets/dazen/
 ```
+
+The `data/` layout matches vendor packs that keep YAML in `data/items_packs/<namespace>/` and resource files under `data/resource_pack/assets/`.
 
 ### Nexo
 
