@@ -1,5 +1,5 @@
 import { readFileWithProgress, inspectPack, convertPack, formatBytes } from './converter.js';
-import { saveConversionJob, makeJobId } from './preview-storage.js';
+import { saveConversionJob, hasConversionJob, makeJobId } from './preview-storage.js';
 
 const state = {
   direction: 'java-to-bedrock',
@@ -237,13 +237,27 @@ async function preparePreviewJob(result) {
 
   try {
     await saveConversionJob(job);
+
+    const verified = await hasConversionJob(jobId);
+    if (!verified) {
+      throw new Error(
+        'The browser reported a successful preview save, but the job could not be verified.'
+      );
+    }
+
     state.previewJobId = jobId;
     refs.viewOutput.disabled = false;
-    log('success', 'Visual conversion preview saved locally on this device.');
+    log(
+      'success',
+      'Visual conversion preview saved and verified locally on this device.'
+    );
   } catch (error) {
     state.previewJobId = null;
     refs.viewOutput.disabled = true;
-    log('warn', `Pack converted, but the browser could not save the visual preview: ${error.message || error}`);
+    log(
+      'warn',
+      `Pack converted, but the browser could not save a reliable visual preview: ${error.message || error}`
+    );
   }
 }
 
