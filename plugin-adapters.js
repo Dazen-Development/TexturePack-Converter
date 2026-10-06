@@ -351,23 +351,38 @@ export async function detectJavaPluginBundle(zip, rawNames) {
 
   if (!adapters.length) return null;
 
-  const itemHints = adapters.flatMap(([, v]) => v.itemHints || []);
-  const glyphHints = adapters.flatMap(([, v]) => v.glyphHints || []);
-  const configPaths = adapters.flatMap(([, v]) => v.configPaths || []);
+  // Vendor archives often ship IA/Nexo/Oraxen as alternative install
+  // variants for the same content. Do not triple-convert those items. The
+  // adapter order intentionally prefers ItemsAdder, then Nexo, then Oraxen.
+  const [primaryName, primary] = adapters[0];
+  const itemHints = primary.itemHints || [];
+  const glyphHints = primary.glyphHints || [];
+  const configPaths = primary.configPaths || [];
   const names = Object.keys(pathMap);
+  const plugins = adapters.map(([name]) => name);
+
+  const warnings = [
+    `Detected Java plugin source bundle: ${plugins.join(', ')}.`,
+    `Using ${primaryName} as the primary source variant for item/glyph IDs.`,
+    'Plugin-assigned CustomModelData or glyph codepoints that are not explicitly present in configs cannot be guessed safely; those entries are reported as unresolved.',
+  ];
+
+  if (adapters.length > 1) {
+    warnings.push(
+      'Multiple plugin variants were found in one vendor ZIP. They are treated as alternative distributions rather than duplicate items.'
+    );
+  }
 
   return {
-    type: adapters.length === 1 ? adapters[0][0] : 'multi-plugin-bundle',
-    plugins: adapters.map(([name]) => name),
+    type: adapters.length === 1 ? primaryName : 'multi-plugin-bundle',
+    primaryPlugin: primaryName,
+    plugins,
     pathMap,
     names,
     itemHints,
     glyphHints,
     configPaths,
-    warnings: [
-      `Detected Java plugin source bundle: ${adapters.map(([name]) => name).join(', ')}.`,
-      'Plugin-assigned CustomModelData or glyph codepoints that are not explicitly present in configs cannot be guessed safely; those entries are reported as unresolved.',
-    ],
+    warnings,
   };
 }
 
