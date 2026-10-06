@@ -135,11 +135,50 @@ These are generated helper structures and should still be tested against the exa
 
 ## Font images / glyph conversion
 
+### Bedrock glyph addressing
+
+Bedrock glyph pages use a direct hexadecimal mapping:
+
+- Unicode `U+E800` → `font/glyph_E8.png` → cell `00`
+- Unicode `U+E801` → `font/glyph_E8.png` → cell `01`
+- Unicode `U+E80F` → `font/glyph_E8.png` → cell `0F`
+- Unicode `U+E810` → `font/glyph_E8.png` → cell `10`
+- Unicode `U+E8FF` → `font/glyph_E8.png` → cell `FF`
+
+In other words, for `U+PPSS`:
+
+- `PP` chooses `glyph_PP.png`
+- `SS` is the hexadecimal slot inside the 16×16 page
+- the first slot digit is the row and the second is the column
+
+The viewer renders the full 16×16 page with `00`–`FF` labels so placement can be audited visually.
+
+The converter chooses the glyph-cell pixel size per page from the largest Java glyph, using a power-of-two cell size. It preserves the original glyph pixels instead of scaling them when they already fit. A page with an 80px-wide rank image therefore uses a 128px cell and a 2048×2048 atlas, matching common production packs.
+
+### Character diagnostics
+
+Every mapped glyph result shows:
+
+- the actual private-use character
+- Unicode code point such as `U+E800`
+- Bedrock page such as `glyph_E8.png`
+- slot such as `00`
+- a **Copy** button for the actual character
+
+If a rank/font/emoji PNG exists but is not referenced by the Java font JSON (or a plugin source config omits its generated Unicode), the converter does not guess silently. It suggests a free private-use character, shows the resulting Bedrock page/slot, and provides copyable examples for:
+
+- Java `assets/<namespace>/font/*.json`
+- ItemsAdder `font_images` with explicit `symbol`
+- Nexo glyph YAML with explicit `char`
+- Oraxen glyph YAML with explicit `char`
+
+Suggestions are also written to `dazen/font-character-suggestions.json`.
+
 ### Java → Bedrock
 
 The converter reads Java bitmap font providers from `assets/<namespace>/font/*.json`.
 
-Private-use glyphs in the supported Bedrock custom-glyph range are placed into Bedrock glyph atlas pages:
+Private-use glyphs in the supported Bedrock custom-glyph range are placed into Bedrock glyph atlas pages. For automatically suggested characters, the converter prefers unused code points from `E8xx` through `F8xx`, then `E2xx` through `E7xx`, avoiding characters already present in the scanned Java pack:
 
 ```text
 font/glyph_E0.png
@@ -159,6 +198,8 @@ Bedrock `font/glyph_E0.png`–`glyph_F8.png` pages are scanned for non-transpare
 The converter:
 
 - extracts non-empty glyph cells
+- crops each cell to its visible alpha bounds instead of exporting the entire square slot
+- preserves the Unicode/page/slot relationship
 - generates Java bitmap textures
 - generates `assets/minecraft/font/default.json`
 - generates ItemsAdder font-image helper configs
@@ -186,7 +227,7 @@ The comparison viewer categorizes output into:
 - Environment
 - Other Images
 
-Editable rows open a dedicated mapping editor.
+Editable rows open a dedicated mapping editor. Font results also include a non-editable **full glyph page** preview with a `00`–`FF` grid overlay, so you can verify that every Java character landed in the intended Bedrock slot.
 
 ### Four-corner editor
 
