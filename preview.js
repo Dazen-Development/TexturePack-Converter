@@ -173,7 +173,8 @@ function renderTabs() {
 }
 
 function renderRows() {
-  cleanupUrls();
+  const previousUrls = [...objectUrls];
+  objectUrls.clear();
   refs.list.innerHTML = '';
 
   const entries = (job.previewEntries || []).filter(entry => {
@@ -211,6 +212,15 @@ function renderRows() {
   }
 
   refs.list.appendChild(fragment);
+
+  // Revoke previous-render URLs only after the new DOM has been attached.
+  // Revoking before replacement can produce broken <img> elements while the
+  // browser is still decoding/restoring IndexedDB-backed Blob URLs.
+  requestAnimationFrame(() => {
+    for (const url of previousUrls) {
+      try { URL.revokeObjectURL(url); } catch {}
+    }
+  });
 }
 
 function buildRow(entry) {
@@ -491,14 +501,46 @@ function buildAtlasRow(entry) {
   const stage = document.createElement('div');
   stage.className = 'glyph-atlas-stage checkerboard';
 
-  if (blob) {
+  if (isBlobLike(blob)) {
     const img = document.createElement('img');
-    const url = URL.createObjectURL(blob);
-    objectUrls.add(url);
-    img.src = url;
     img.alt = `Glyph page ${meta.pageHex || ''}`;
     img.loading = 'lazy';
-    stage.appendChild(img);
+    img.decoding = 'async';
+
+    try {
+      const url = URL.createObjectURL(blob);
+      objectUrls.add(url);
+      img.src = url;
+
+      img.addEventListener('error', () => {
+        if (img.dataset.retrying === '1') {
+          const fallback = document.createElement('small');
+          fallback.className = 'preview-image-error';
+          fallback.textContent = 'Could not decode glyph atlas preview';
+          stage.replaceChildren(fallback, overlay);
+          return;
+        }
+
+        img.dataset.retrying = '1';
+        try {
+          const retryUrl = URL.createObjectURL(blob);
+          objectUrls.add(retryUrl);
+          img.src = retryUrl;
+        } catch {
+          const fallback = document.createElement('small');
+          fallback.className = 'preview-image-error';
+          fallback.textContent = 'Could not decode glyph atlas preview';
+          stage.replaceChildren(fallback, overlay);
+        }
+      });
+
+      stage.appendChild(img);
+    } catch {
+      const fallback = document.createElement('small');
+      fallback.className = 'preview-image-error';
+      fallback.textContent = 'Glyph atlas preview unavailable';
+      stage.appendChild(fallback);
+    }
   }
 
   const overlay = document.createElement('div');
@@ -536,6 +578,17 @@ function buildAtlasRow(entry) {
   return article;
 }
 
+function isBlobLike(value) {
+  return (
+    value instanceof Blob ||
+    (
+      value &&
+      typeof value === 'object' &&
+      typeof value.arrayBuffer === 'function'
+    )
+  );
+}
+
 function buildTextureCell(blob, path, alt) {
   const cell = document.createElement('div');
   cell.className = 'texture-cell';
@@ -543,17 +596,65 @@ function buildTextureCell(blob, path, alt) {
   const stage = document.createElement('div');
   stage.className = 'texture-stage checkerboard';
 
+  const code = document.createElement('code');
+  code.textContent = path || '';
+
+  if (!isBlobLike(blob)) {
+    const fallback = document.createElement('small');
+    fallback.className = 'preview-image-error';
+    fallback.textContent = 'Preview image data unavailable';
+    stage.appendChild(fallback);
+    cell.append(stage, code);
+    return cell;
+  }
+
   const img = document.createElement('img');
-  const url = URL.createObjectURL(blob);
-  objectUrls.add(url);
-  img.src = url;
   img.alt = alt;
   img.loading = 'lazy';
+  img.decoding = 'async';
+
+  let url;
+  try {
+    url = URL.createObjectURL(blob);
+    objectUrls.add(url);
+    img.src = url;
+  } catch (error) {
+    const fallback = document.createElement('small');
+    fallback.className = 'preview-image-error';
+    fallback.textContent = 'Could not create image preview';
+    stage.appendChild(fallback);
+    cell.append(stage, code);
+    return cell;
+  }
+
+  img.addEventListener('error', () => {
+    if (img.dataset.retrying === '1') {
+      stage.replaceChildren();
+      const fallback = document.createElement('small');
+      fallback.className = 'preview-image-error';
+      fallback.textContent = 'Could not decode preview image';
+      stage.appendChild(fallback);
+      return;
+    }
+
+    // Some browsers occasionally fail the first decode of an IndexedDB Blob
+    // object URL. Generate one fresh URL and retry once before showing an error.
+    img.dataset.retrying = '1';
+
+    try {
+      const retryUrl = URL.createObjectURL(blob);
+      objectUrls.add(retryUrl);
+      img.src = retryUrl;
+    } catch {
+      stage.replaceChildren();
+      const fallback = document.createElement('small');
+      fallback.className = 'preview-image-error';
+      fallback.textContent = 'Could not decode preview image';
+      stage.appendChild(fallback);
+    }
+  });
+
   stage.appendChild(img);
-
-  const code = document.createElement('code');
-  code.textContent = path;
-
   cell.append(stage, code);
   return cell;
 }
