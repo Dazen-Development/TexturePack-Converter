@@ -1,86 +1,237 @@
 # Dazen Texture Pack Converter
 
-A browser-based Minecraft resource-pack converter for **Java Edition ↔ Bedrock Edition**, built as a static web app by **Dazen Development**.
+A browser-based Minecraft resource-pack converter for **Java Edition ↔ Bedrock Edition**, built by **Dazen Development**.
 
-Current architecture pair:
+The converter is designed around real pack structures instead of treating every resource pack as vanilla-only. It supports standard Java/Bedrock packs plus source/resource layouts used by **ItemsAdder**, **Nexo**, and **Oraxen**.
+
+## Current architecture pair
 
 - Java Edition: **26.2.x**
 - Bedrock Edition: **1.26.50**
 
-## Current flow
+The version selector/UI is structured so more mapping profiles can be added later.
 
-The converter now uses **one source-pack input only**.
+## Conversion flow
+
+There is only **one source input**.
 
 - **Java → Bedrock**: upload a Java `.zip`.
 - **Bedrock → Java**: upload a Bedrock `.mcpack` or `.zip`.
 
-Changing the conversion direction automatically changes the accepted file type, architecture labels, validation rules, and target format.
+Changing the direction changes the accepted file type, architecture scan, mapping rules, and target output.
 
-## Features
+## Java source formats
 
-- One direction-aware source input.
-- Drag-and-drop or file picker.
-- Local file-read progress bar.
-- Automatic architecture scan before conversion.
-- Java validation using `pack.mcmeta` and `assets/minecraft/`.
-- Bedrock validation using `manifest.json` and `textures/`.
-- Detects a single wrapper folder inside ZIP archives.
-- Version-specific texture path mappings derived from the supplied vanilla reference packs.
-- Java `pack.png` ↔ Bedrock `pack_icon.png`.
-- Generates Bedrock `manifest.json` and Java `pack.mcmeta`.
-- Process console with warnings and skipped-file reporting.
-- Dedicated **Conversion Output** section after processing.
-- Manual **Download Pack** button instead of forcing an immediate download.
-- **View Conversion** results page with visual source → output comparison.
-- Results categorized into:
-  - Blocks
-  - Items
-  - Mobs / Entities
-  - Fonts / font images
-  - GUI
-  - Environment
-  - Other images
-- Searchable comparison viewer with source path, output path, and conversion status.
-- Unsupported PNG textures can appear as **Skipped** instead of being presented as successfully converted.
-- Conversion preview and output are stored locally in the browser using IndexedDB so the separate preview page can open without uploading the resource pack.
-- Up to 600 PNG entries are retained for visual preview to protect browser performance. This does **not** limit how many compatible files are included in the converted archive.
-- Optional conversion report inside the output archive.
+The scanner accepts:
+
+1. Normal generated Java resource packs:
+   - `pack.mcmeta`
+   - `assets/<namespace>/...`
+
+2. ItemsAdder source/vendor bundles:
+   - `contents/<namespace>/configs/*.yml`
+   - `contents/<namespace>/resourcepack/assets/...`
+   - direct `contents/<namespace>/textures/...` layouts used by font-image packs
+   - simple root `configs/ + textures/` vendor layouts
+
+3. Nexo source/vendor bundles:
+   - `Nexo/items/*.yml`
+   - `Nexo/glyphs/*.yml`
+   - `Nexo/pack/assets/...`
+
+4. Oraxen source/vendor bundles:
+   - `Oraxen/items/*.yml`
+   - `Oraxen/glyphs/*.yml`
+   - `Oraxen/pack/assets/...`
+   - Oraxen shortcut layouts such as `Oraxen/pack/models/...` and `Oraxen/pack/textures/...`
+
+When one vendor archive contains ItemsAdder, Nexo, and Oraxen as alternative distributions of the same content, the converter chooses one primary source variant rather than triple-converting the same items.
+
+## Custom item conversion
+
+### Java → Bedrock
+
+The custom-item module understands both legacy and modern Java item systems.
+
+It scans:
+
+- Pre-1.21.4 model overrides using `custom_model_data`
+- Modern `assets/<namespace>/items/*.json` definitions
+- `range_dispatch`
+- `condition`
+- `select`
+- namespaced forms such as `minecraft:model`, `minecraft:condition`, and `minecraft:range_dispatch`
+- ItemsAdder item metadata
+- Nexo item metadata
+- Oraxen item metadata
+
+For compatible items it generates:
+
+- Bedrock item PNGs under `textures/items/dazen/`
+- `textures/item_texture.json`
+- Geyser custom-item mappings in `dazen/geyser_custom_mappings.json`
+- `dazen/GEYSER_SETUP.txt`
+- unresolved-item report when server-side IDs cannot be inferred safely
+
+The UI also exposes a separate **Geyser Mappings** download button when valid mappings were generated.
+
+### Geyser mapping modes
+
+The converter emits Geyser custom mapping format v2:
+
+- `type: "legacy"` for known CustomModelData values
+- `type: "definition"` for known modern ItemModel identifiers
+
+The converter never invents CustomModelData values, plugin-generated item IDs, or predicates when they are absent from the source.
+
+### 3D Java item models
+
+3D Java models are detected.
+
+This browser build currently uses the resolved item/icon texture as a Bedrock icon/held fallback and reports the item as a **3D fallback**. Exact held-model conversion is intentionally not claimed yet because a faithful Bedrock representation requires geometry/attachables/animations and, in some cases, a separately rendered inventory icon.
+
+## Bedrock → Java custom items
+
+The converter parses `textures/item_texture.json` and:
+
+- creates `assets/dazen/textures/item/*.png`
+- creates Java generated item models
+- creates modern Java item definitions
+- restores embedded Dazen/Geyser CMD or ItemModel mappings when available
+- reconstructs legacy CMD `range_dispatch` files when enough mapping metadata exists
+
+It also generates integration helpers for all three supported Java content plugins:
+
+### ItemsAdder
+
+```text
+integrations/ItemsAdder/
+└── contents/dazen_converted/
+    ├── configs/
+    └── resourcepack/assets/dazen/
+```
+
+### Nexo
+
+```text
+integrations/Nexo/
+├── items/
+├── glyphs/
+└── pack/assets/dazen/
+```
+
+### Oraxen
+
+```text
+integrations/Oraxen/
+├── items/
+├── glyphs/
+└── pack/
+    ├── assets/dazen/
+    └── textures/dazen/
+```
+
+These are generated helper structures and should still be tested against the exact plugin/server version in use.
+
+## Font images / glyph conversion
+
+### Java → Bedrock
+
+The converter reads Java bitmap font providers from `assets/<namespace>/font/*.json`.
+
+Private-use glyphs in the supported Bedrock custom-glyph range are placed into Bedrock glyph atlas pages:
+
+```text
+font/glyph_E0.png
+font/glyph_E1.png
+...
+font/glyph_F8.png
+```
+
+Each atlas uses the Bedrock 16×16 glyph grid.
+
+ItemsAdder/Nexo/Oraxen source glyph configs are also inspected. If an explicit Unicode character is present, it can be mapped. If the plugin normally auto-assigns the character and the source YAML does not contain it, the entry is reported as unresolved instead of guessing a codepoint.
+
+### Bedrock → Java
+
+Bedrock `font/glyph_E0.png`–`glyph_F8.png` pages are scanned for non-transparent cells.
+
+The converter:
+
+- extracts non-empty glyph cells
+- generates Java bitmap textures
+- generates `assets/minecraft/font/default.json`
+- generates ItemsAdder font-image helper configs
+- generates Nexo glyph helper configs
+- generates Oraxen glyph helper configs
+
+## Visual comparison and correction editor
+
+After conversion, the **Conversion Output** panel contains:
+
+- Download Pack
+- Geyser Mappings (when available)
+- View / Edit Conversion
+- custom-item count
+- converted font-glyph count
+- mapped/compatible/skipped counts
+
+The comparison viewer categorizes output into:
+
+- Blocks
+- Items
+- Mobs / Entities
+- Fonts
+- GUI
+- Environment
+- Other Images
+
+Editable rows open a dedicated mapping editor.
+
+### Four-corner editor
+
+The editor lets the user:
+
+- drag the texture to move it
+- drag any of four corner points to resize it
+- optionally lock aspect ratio
+- edit X / Y / Width / Height numerically
+- center or reset the image
+- save the correction
+
+Saving is not cosmetic. The browser reopens the generated ZIP/MCPACK, replaces the actual target PNG (or the relevant Bedrock glyph atlas cell), regenerates the output archive, and saves the updated conversion job locally.
+
+The next download therefore contains the corrected image.
 
 ## Privacy
 
-Conversion is performed in the browser.
+All conversion is performed in the browser.
 
-The app does not send the user's pack to Dazen Development or to a conversion server. GitHub Pages or another static host only serves the HTML, CSS and JavaScript application files.
+The app does not upload the user's pack to a Dazen server. The static host only serves the HTML/CSS/JavaScript application.
 
-The visual result viewer uses the browser's local IndexedDB storage. Recent conversion previews may be removed automatically as newer jobs replace them or if the browser clears site data.
+Conversion previews and edited output archives are stored locally using IndexedDB so the separate preview/editor pages can access them.
 
-## Scope / limitations
+## Important limitations
 
-This release remains intentionally **texture-focused**. It handles classic PNG texture paths where a safe mapping or same-path conversion is available.
+The converter intentionally reports uncertain mappings instead of silently fabricating them.
 
-The following may still require manual work or future converter modules:
+Current limitations include:
 
-- Java models, blockstates and atlases
-- Bedrock entity/model/render-controller JSON
-- OptiFine / CIT / CEM
-- Shaders
-- Complete font-system conversion
-- Java `.png.mcmeta` animation → Bedrock flipbook conversion
+- full Java 3D model → Bedrock attachable/geometry conversion
+- arbitrary multi-texture/animated Blockbench item models
+- complete Java `.png.mcmeta` animation → Bedrock flipbook conversion
 - Bedrock TGA → Java PNG conversion
-- Complex edition-specific GUI layouts
-- Custom 3D models and non-vanilla namespaces
+- shaders
+- OptiFine/CIT/CEM
+- complex edition-specific GUI layouts
+- plugin-assigned CMD/item IDs that are generated at runtime and absent from source files
+- ItemsAdder/Nexo/Oraxen glyph codepoints that are auto-assigned and absent from source configs
 
-The converter reports unsupported files instead of silently claiming that everything was converted.
-
-## Static hosting
-
-No server runtime is required.
-
-For GitHub Pages, the repository must meet the Pages visibility requirements of the GitHub plan being used. The site can also be hosted on another static host.
+For the most reliable plugin conversion, use the **generated Java resource pack** when available because it contains the final ItemModel/CMD/font mappings produced by the plugin.
 
 ## Local development
 
-Because the app uses ES modules, run it from a local HTTP server instead of double-clicking `index.html`.
+Because the app uses ES modules, serve it over HTTP:
 
 ```bash
 python -m http.server 8080
