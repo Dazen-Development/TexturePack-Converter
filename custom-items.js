@@ -61,40 +61,134 @@ function isLikelyHandheld(baseItem, model) {
   return /(sword|axe|pickaxe|shovel|hoe|mace|bow|crossbow|fishing_rod|handheld|spear|staff|hammer|dagger)/.test(haystack);
 }
 
+function normalizedModelType(value) {
+  return String(value || '').replace(/^minecraft:/, '');
+}
+
+function normalizedModelProperty(value) {
+  return String(value || '').replace(/^minecraft:/, '');
+}
+
 function flattenModelLeaves(node, context = {}, out = []) {
   if (!node || typeof node !== 'object') return out;
 
-  if (node.type === 'model' && typeof node.model === 'string') {
-    out.push({ modelRef: node.model, context: { ...context } });
+  const type = normalizedModelType(node.type);
+  const currentPriority = Number(context.priority || 0);
+
+  if (type === 'model' && typeof node.model === 'string') {
+    out.push({
+      modelRef: node.model,
+      context: { ...context, priority: currentPriority },
+    });
     return out;
   }
 
-  if (node.type === 'range_dispatch') {
-    const property = node.property;
+  if (type === 'range_dispatch') {
+    const property = normalizedModelProperty(node.property);
     for (const entry of node.entries || []) {
-      const next = { ...context };
-      if (property === 'custom_model_data') next.customModelData = Number(entry.threshold);
-      else next.predicate = { type: 'range_dispatch', property, threshold: entry.threshold };
+      const next = { ...context, priority: currentPriority };
+      if (property === 'custom_model_data') {
+        next.customModelData = Number(entry.threshold);
+      } else {
+        next.predicate = {
+          type: 'range_dispatch',
+          property,
+          threshold: entry.threshold,
+        };
+      }
       flattenModelLeaves(entry.model, next, out);
     }
-    if (node.fallback) flattenModelLeaves(node.fallback, { ...context, fallback: true }, out);
-    return out;
-  }
 
-  if (node.type === 'condition') {
-    if (node.on_true) flattenModelLeaves(node.on_true, { ...context, predicate: { type: 'condition', property: node.property, expected: true } }, out);
-    if (node.on_false) flattenModelLeaves(node.on_false, { ...context, predicate: { type: 'condition', property: node.property, expected: false } }, out);
-    return out;
-  }
-
-  if (node.type === 'select') {
-    for (const c of node.cases || []) {
-      flattenModelLeaves(c.model, { ...context, predicate: { type: 'select', property: node.property, when: c.when } }, out);
+    if (node.fallback) {
+      flattenModelLeaves(
+        node.fallback,
+        {
+          ...context,
+          fallback: true,
+          priority: currentPriority + 2,
+        },
+        out
+      );
     }
-    if (node.fallback) flattenModelLeaves(node.fallback, { ...context, fallback: true }, out);
+    return out;
+  }
+
+  if (type === 'condition') {
+    const property = normalizedModelProperty(node.property);
+    if (node.on_true) {
+      flattenModelLeaves(
+        node.on_true,
+        {
+          ...context,
+          predicate: { type: 'condition', property, expected: true },
+          priority: currentPriority,
+        },
+        out
+      );
+    }
+    if (node.on_false) {
+      // The false branch is normally the stable inventory/not-in-use state
+      // for bows, crossbows, shields, fishing rods, etc. Prefer it for the
+      // Bedrock icon when several Java runtime states share one CMD.
+      flattenModelLeaves(
+        node.on_false,
+        {
+          ...context,
+          predicate: { type: 'condition', property, expected: false },
+          priority: currentPriority + 4,
+        },
+        out
+      );
+    }
+    return out;
+  }
+
+  if (type === 'select') {
+    const property = normalizedModelProperty(node.property);
+    for (const itemCase of node.cases || []) {
+      flattenModelLeaves(
+        itemCase.model,
+        {
+          ...context,
+          predicate: { type: 'select', property, when: itemCase.when },
+          priority: currentPriority,
+        },
+        out
+      );
+    }
+    if (node.fallback) {
+      flattenModelLeaves(
+        node.fallback,
+        {
+          ...context,
+          fallback: true,
+          priority: currentPriority + 3,
+        },
+        out
+      );
+    }
   }
 
   return out;
+}
+
+function preferredLeaves(leaves) {
+  const groups = new Map();
+
+  for (const leaf of leaves) {
+    const key = Number.isFinite(leaf.context?.customModelData)
+      ? `cmd:${leaf.context.customModelData}`
+      : 'default';
+    const current = groups.get(key);
+    if (
+      !current ||
+      Number(leaf.context?.priority || 0) > Number(current.context?.priority || 0)
+    ) {
+      groups.set(key, leaf);
+    }
+  }
+
+  return [...groups.values()];
 }
 
 async function resolveModelIcon(inspection, modelRef, defaultNamespace = 'minecraft') {
@@ -190,7 +284,7 @@ async function scanGeneratedJavaItems(inspection) {
     if (!info || !doc?.model) continue;
 
     const hint = hintByItemModel.get(info.id) || null;
-    const leaves = flattenModelLeaves(doc.model);
+    const leaves = preferredLeaves(flattenModelLeaves(doc.model));
 
     for (const leaf of leaves) {
       if (leaf.context?.fallback) continue;
