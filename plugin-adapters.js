@@ -333,21 +333,25 @@ async function parseOraxen(zip, rawNames, pathMap) {
 }
 
 export async function detectJavaPluginBundle(zip, rawNames) {
+  const usableNames = rawNames.filter(name =>
+    !name.startsWith('__MACOSX/') &&
+    !name.split('/').some(part => part.startsWith('._'))
+  );
   const pathMap = makePathMap();
   const hasIA =
-    rawNames.some(n => /(?:^|\/)ItemsAdder\/(?:contents|data)\//i.test(n)) ||
-    rawNames.some(n => /(?:^|\/)contents\/[^/]+\/(?:configs|resourcepack|textures)\//i.test(n)) ||
+    usableNames.some(n => /(?:^|\/)ItemsAdder\/(?:contents|data)\//i.test(n)) ||
+    usableNames.some(n => /(?:^|\/)contents\/[^/]+\/(?:configs|resourcepack|textures)\//i.test(n)) ||
     (
-      rawNames.some(n => /^configs\/.*\.ya?ml$/i.test(n)) &&
-      rawNames.some(n => /^textures\/.*\.png$/i.test(n))
+      usableNames.some(n => /^configs\/.*\.ya?ml$/i.test(n)) &&
+      usableNames.some(n => /^textures\/.*\.png$/i.test(n))
     );
-  const hasNexo = rawNames.some(n => /(?:^|\/)Nexo\/(?:items|pack|glyphs)\//i.test(n));
-  const hasOraxen = rawNames.some(n => /(?:^|\/)Oraxen\/(?:items|pack|glyphs)\//i.test(n));
+  const hasNexo = usableNames.some(n => /(?:^|\/)Nexo\/(?:items|pack|glyphs)\//i.test(n));
+  const hasOraxen = usableNames.some(n => /(?:^|\/)Oraxen\/(?:items|pack|glyphs)\//i.test(n));
 
   const adapters = [];
-  if (hasIA) adapters.push(['itemsadder', await parseItemsAdder(zip, rawNames, pathMap)]);
-  if (hasNexo) adapters.push(['nexo', await parseNexo(zip, rawNames, pathMap)]);
-  if (hasOraxen) adapters.push(['oraxen', await parseOraxen(zip, rawNames, pathMap)]);
+  if (hasIA) adapters.push(['itemsadder', await parseItemsAdder(zip, usableNames, pathMap)]);
+  if (hasNexo) adapters.push(['nexo', await parseNexo(zip, usableNames, pathMap)]);
+  if (hasOraxen) adapters.push(['oraxen', await parseOraxen(zip, usableNames, pathMap)]);
 
   if (!adapters.length) return null;
 
