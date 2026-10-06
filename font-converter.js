@@ -383,7 +383,7 @@ export async function convertBedrockFontsToJava({ inspection, output, onLog = ()
         glyphBlob
       );
       output.file(
-        `integrations/Oraxen/pack/textures/dazen/font/${fileName}`,
+        `integrations/Oraxen/pack/assets/dazen/textures/font/${fileName}`,
         glyphBlob
       );
 
@@ -404,7 +404,7 @@ export async function convertBedrockFontsToJava({ inspection, output, onLog = ()
       );
       oraxenGlyphs.push(
         `glyph_${id}:`,
-        `  texture: dazen/font/${fileName.replace(/\.png$/i, '')}`,
+        `  texture: dazen:font/${fileName.replace(/\.png$/i, '')}`,
         '  ascent: 8',
         '  height: 8',
         `  char: ${yamlChar}`
