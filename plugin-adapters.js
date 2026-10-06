@@ -335,9 +335,11 @@ async function parseOraxen(zip, rawNames, pathMap) {
 export async function detectJavaPluginBundle(zip, rawNames) {
   const usableNames = rawNames.filter(name =>
     !name.startsWith('__MACOSX/') &&
-    !name.split('/').some(part => part.startsWith('._'))
+    !name.split('/').some(part => part.startsWith('._')) &&
+    !name.endsWith('/.DS_Store') &&
+    !name.endsWith('.DS_Store')
   );
-  const pathMap = makePathMap();
+
   const hasIA =
     usableNames.some(n => /(?:^|\/)ItemsAdder\/(?:contents|data)\//i.test(n)) ||
     usableNames.some(n => /(?:^|\/)contents\/[^/]+\/(?:configs|resourcepack|textures)\//i.test(n)) ||
@@ -345,47 +347,97 @@ export async function detectJavaPluginBundle(zip, rawNames) {
       usableNames.some(n => /^configs\/.*\.ya?ml$/i.test(n)) &&
       usableNames.some(n => /^textures\/.*\.png$/i.test(n))
     );
-  const hasNexo = usableNames.some(n => /(?:^|\/)Nexo\/(?:items|pack|glyphs)\//i.test(n));
-  const hasOraxen = usableNames.some(n => /(?:^|\/)Oraxen\/(?:items|pack|glyphs)\//i.test(n));
 
+  const hasNexo =
+    usableNames.some(n => /(?:^|\/)Nexo\/(?:items|pack|glyphs)\//i.test(n));
+
+  const hasOraxen =
+    usableNames.some(n => /(?:^|\/)Oraxen\/(?:items|pack|glyphs)\//i.test(n));
+
+  // Parse each plugin alternative into its OWN virtual Java resource tree.
+  // A vendor ZIP commonly contains the same pack three times (ItemsAdder,
+  // Nexo and Oraxen). Sharing one path map caused duplicate alternatives to
+  // leak into conversion as ordinary PNGs and show "No target mapping".
   const adapters = [];
-  if (hasIA) adapters.push(['itemsadder', await parseItemsAdder(zip, usableNames, pathMap)]);
-  if (hasNexo) adapters.push(['nexo', await parseNexo(zip, usableNames, pathMap)]);
-  if (hasOraxen) adapters.push(['oraxen', await parseOraxen(zip, usableNames, pathMap)]);
+
+  if (hasIA) {
+    const pathMap = makePathMap();
+    adapters.push([
+      'itemsadder',
+      await parseItemsAdder(zip, usableNames, pathMap),
+      pathMap,
+    ]);
+  }
+
+  if (hasNexo) {
+    const pathMap = makePathMap();
+    adapters.push([
+      'nexo',
+      await parseNexo(zip, usableNames, pathMap),
+      pathMap,
+    ]);
+  }
+
+  if (hasOraxen) {
+    const pathMap = makePathMap();
+    adapters.push([
+      'oraxen',
+      await parseOraxen(zip, usableNames, pathMap),
+      pathMap,
+    ]);
+  }
 
   if (!adapters.length) return null;
 
-  // Vendor archives often ship IA/Nexo/Oraxen as alternative install
-  // variants for the same content. Do not triple-convert those items. The
-  // adapter order intentionally prefers ItemsAdder, then Nexo, then Oraxen.
-  const [primaryName, primary] = adapters[0];
+  // Vendor archives ship these as alternative install variants for the SAME
+  // content. Prefer ItemsAdder, then Nexo, then Oraxen, and convert only that
+  // primary virtual tree. Reverse output can still generate helper folders
+  // for every supported plugin.
+  const [primaryName, primary, primaryPathMap] = adapters[0];
   const itemHints = primary.itemHints || [];
   const glyphHints = primary.glyphHints || [];
   const configPaths = primary.configPaths || [];
-  const names = Object.keys(pathMap);
+  const names = Object.keys(primaryPathMap);
   const plugins = adapters.map(([name]) => name);
+
+  const alternativeCounts = Object.fromEntries(
+    adapters.map(([name, , map]) => [
+      name,
+      Object.keys(map).length,
+    ])
+  );
 
   const warnings = [
     `Detected Java plugin source bundle: ${plugins.join(', ')}.`,
-    `Using ${primaryName} as the primary source variant for item/glyph IDs.`,
-    'Plugin-assigned CustomModelData or glyph codepoints that are not explicitly present in configs cannot be guessed safely; those entries are reported as unresolved.',
+    `Using ${primaryName} as the primary source variant for conversion.`,
   ];
 
   if (adapters.length > 1) {
     warnings.push(
-      'Multiple plugin variants were found in one vendor ZIP. They are treated as alternative distributions rather than duplicate items.'
+      'Multiple plugin alternatives were found in one vendor ZIP. Duplicate ItemsAdder/Nexo/Oraxen resource copies are now excluded from the conversion tree instead of being reported as unmapped files.'
+    );
+  }
+
+  const unresolvedGlyphs = glyphHints.filter(g => !g.resolvable).length;
+  if (unresolvedGlyphs) {
+    warnings.push(
+      `${unresolvedGlyphs} font-image/glyph entries do not expose an explicit character. The font converter will assign deterministic free private-use characters and generate matching Java/plugin config patches.`
     );
   }
 
   return {
-    type: adapters.length === 1 ? primaryName : 'multi-plugin-bundle',
+    type:
+      adapters.length === 1
+        ? primaryName
+        : 'multi-plugin-bundle',
     primaryPlugin: primaryName,
     plugins,
-    pathMap,
+    pathMap: primaryPathMap,
     names,
     itemHints,
     glyphHints,
     configPaths,
+    alternativeCounts,
     warnings,
   };
 }
