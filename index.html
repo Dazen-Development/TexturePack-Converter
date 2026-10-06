@@ -31,7 +31,7 @@
     <section class="hero">
       <div class="eyebrow">Minecraft resource pack utility</div>
       <h1>Convert Java ↔ Bedrock<br><span>without uploading your pack.</span></h1>
-      <p class="hero-copy">Drop a supported resource pack below. The browser scans its structure first, maps compatible texture paths, builds the target pack, and gives you a downloadable archive.</p>
+      <p class="hero-copy">Choose the target edition, upload only the required source pack, scan its architecture, then inspect and download the conversion result.</p>
       <div class="support-badges" aria-label="Current version support">
         <span>Java 26.2.x</span>
         <span class="swap-dot">⇄</span>
@@ -40,10 +40,10 @@
     </section>
 
     <section class="workspace" aria-labelledby="workspace-title">
-      <div class="workspace-head">
+      <div class="workspace-head single-workspace-head">
         <div>
           <p class="section-kicker">Converter workspace</p>
-          <h2 id="workspace-title">Choose a direction, then add your source pack.</h2>
+          <h2 id="workspace-title">Choose your conversion direction.</h2>
         </div>
         <div class="direction-toggle" role="group" aria-label="Conversion direction">
           <button class="direction-btn active" data-direction="java-to-bedrock" type="button">Java → Bedrock</button>
@@ -51,74 +51,70 @@
         </div>
       </div>
 
-      <div class="pack-grid">
-        <article class="pack-card" data-side="java">
-          <div class="pack-card-top">
-            <div class="edition-icon java-icon">J</div>
+      <div class="single-converter-layout">
+        <article class="source-pack-card">
+          <div class="source-card-heading">
+            <div id="source-edition-icon" class="edition-icon java-icon">J</div>
             <div>
-              <h3>Java Edition</h3>
-              <p>Resource pack (.zip)</p>
+              <span class="source-label">Source pack</span>
+              <h3 id="source-edition-title">Java Edition</h3>
+              <p id="source-edition-copy">Upload a Java 26.2.x resource pack (.zip)</p>
             </div>
-            <span class="status-badge idle" id="java-status">Waiting</span>
+            <span class="status-badge idle" id="source-status">Waiting</span>
           </div>
 
-          <label class="field-label" for="java-version">Architecture</label>
-          <select id="java-version" class="version-select">
-            <option value="26.2.x">Java 26.2.x</option>
-          </select>
+          <div class="architecture-row">
+            <div>
+              <label class="field-label" for="source-version">Source architecture</label>
+              <select id="source-version" class="version-select">
+                <option value="26.2.x">Java 26.2.x</option>
+              </select>
+            </div>
+            <div class="target-architecture">
+              <span class="field-label">Output architecture</span>
+              <strong id="target-version-label">Bedrock 1.26.50</strong>
+            </div>
+          </div>
 
-          <div class="dropzone" id="java-dropzone" tabindex="0" role="button" aria-label="Choose or drop Java resource pack">
-            <input id="java-file" type="file" accept=".zip,application/zip" hidden />
+          <div class="dropzone single-dropzone" id="source-dropzone" tabindex="0" role="button" aria-label="Choose or drop source resource pack">
+            <input id="source-file" type="file" accept=".zip,application/zip" hidden />
             <div class="drop-icon">⇧</div>
-            <strong>Drop Java pack here</strong>
-            <span>or click to choose a .zip</span>
-            <small id="java-file-name">No file selected</small>
+            <strong id="dropzone-title">Drop Java pack here</strong>
+            <span id="dropzone-subtitle">or click to choose a .zip</span>
+            <small id="source-file-name">No file selected</small>
           </div>
 
-          <div class="upload-progress" id="java-progress-wrap" hidden>
-            <div class="progress-meta"><span id="java-progress-label">Reading file…</span><strong id="java-progress-text">0%</strong></div>
-            <div class="progress-track"><div id="java-progress" class="progress-fill"></div></div>
+          <div class="upload-progress" id="source-progress-wrap" hidden>
+            <div class="progress-meta">
+              <span id="source-progress-label">Reading file…</span>
+              <strong id="source-progress-text">0%</strong>
+            </div>
+            <div class="progress-track"><div id="source-progress" class="progress-fill"></div></div>
           </div>
 
-          <div class="scan-summary" id="java-summary">Upload a pack to scan <code>pack.mcmeta</code> and <code>assets/minecraft/</code>.</div>
+          <div class="scan-summary" id="source-summary">
+            Upload a Java pack to scan <code>pack.mcmeta</code> and <code>assets/minecraft/</code>.
+          </div>
         </article>
 
-        <div class="transfer-column" aria-hidden="true">
-          <div class="transfer-line"></div>
-          <div class="transfer-orb">⇄</div>
-          <div class="transfer-line"></div>
-        </div>
-
-        <article class="pack-card" data-side="bedrock">
-          <div class="pack-card-top">
-            <div class="edition-icon bedrock-icon">B</div>
-            <div>
-              <h3>Bedrock Edition</h3>
-              <p>Resource pack (.mcpack or .zip)</p>
-            </div>
-            <span class="status-badge idle" id="bedrock-status">Waiting</span>
+        <aside class="conversion-route-card">
+          <span class="route-label">Conversion route</span>
+          <div class="route-edition">
+            <div id="route-source-icon" class="route-icon java-icon">J</div>
+            <div><span>Input</span><strong id="route-source-name">Java 26.2.x</strong></div>
           </div>
-
-          <label class="field-label" for="bedrock-version">Architecture</label>
-          <select id="bedrock-version" class="version-select">
-            <option value="1.26.50">Bedrock 1.26.50</option>
-          </select>
-
-          <div class="dropzone" id="bedrock-dropzone" tabindex="0" role="button" aria-label="Choose or drop Bedrock resource pack">
-            <input id="bedrock-file" type="file" accept=".zip,.mcpack,application/zip" hidden />
-            <div class="drop-icon">⇧</div>
-            <strong>Drop Bedrock pack here</strong>
-            <span>or click to choose .mcpack / .zip</span>
-            <small id="bedrock-file-name">No file selected</small>
+          <div class="route-arrow">↓</div>
+          <div class="route-engine">
+            <span>DAZEN</span>
+            <strong>Texture Mapper</strong>
+            <small>Architecture scan · path mapping · repack</small>
           </div>
-
-          <div class="upload-progress" id="bedrock-progress-wrap" hidden>
-            <div class="progress-meta"><span id="bedrock-progress-label">Reading file…</span><strong id="bedrock-progress-text">0%</strong></div>
-            <div class="progress-track"><div id="bedrock-progress" class="progress-fill"></div></div>
+          <div class="route-arrow">↓</div>
+          <div class="route-edition">
+            <div id="route-target-icon" class="route-icon bedrock-icon">B</div>
+            <div><span>Output</span><strong id="route-target-name">Bedrock 1.26.50</strong></div>
           </div>
-
-          <div class="scan-summary" id="bedrock-summary">Upload a pack to scan <code>manifest.json</code> and <code>textures/</code>.</div>
-        </article>
+        </aside>
       </div>
 
       <div class="options-row">
@@ -144,6 +140,43 @@
       </div>
     </section>
 
+    <section id="conversion-output" class="output-card" hidden aria-labelledby="output-title">
+      <div class="output-head">
+        <div>
+          <p class="section-kicker">Conversion output</p>
+          <h2 id="output-title">Your converted pack is ready.</h2>
+          <p id="output-summary">The result stays in your browser until you leave or replace the conversion.</p>
+        </div>
+        <span class="output-ready-badge">Ready</span>
+      </div>
+
+      <div class="output-body">
+        <div class="output-file-card">
+          <div class="output-file-icon">ZIP</div>
+          <div class="output-file-copy">
+            <strong id="output-file-name">converted-pack.zip</strong>
+            <span id="output-file-meta">0 files converted</span>
+          </div>
+        </div>
+
+        <div class="output-stats">
+          <div><span>Mapped</span><strong id="output-mapped">0</strong></div>
+          <div><span>Compatible</span><strong id="output-passthrough">0</strong></div>
+          <div><span>Skipped</span><strong id="output-skipped">0</strong></div>
+          <div><span>Previewable</span><strong id="output-previewable">0</strong></div>
+        </div>
+
+        <div class="output-actions">
+          <button id="download-output" class="primary-btn" type="button">
+            <span>Download Pack</span><span>↓</span>
+          </button>
+          <button id="view-output" class="secondary-btn" type="button">
+            <span>View Conversion</span><span>↗</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
     <section class="console-card" aria-labelledby="console-title">
       <div class="console-head">
         <div>
@@ -154,25 +187,25 @@
       </div>
       <div id="console" class="console" role="log" aria-live="polite" aria-relevant="additions">
         <div class="log-line info"><span class="log-time">--:--:--</span><span class="log-level">INFO</span><span>Dazen Texture Pack Converter ready.</span></div>
-        <div class="log-line muted"><span class="log-time">--:--:--</span><span class="log-level">NOTE</span><span>Your files stay on this device; GitHub Pages only serves the app files.</span></div>
+        <div class="log-line muted"><span class="log-time">--:--:--</span><span class="log-level">NOTE</span><span>Your files stay on this device; the site only performs local browser processing.</span></div>
       </div>
     </section>
 
     <section class="notes-grid">
       <article class="note-card">
         <span class="note-index">01</span>
-        <h3>Validated before conversion</h3>
-        <p>Archives are scanned for the expected root metadata and resource-pack folders. Wrapped single-folder ZIPs are detected automatically.</p>
+        <h3>One source input</h3>
+        <p>Java → Bedrock only accepts a Java ZIP. Bedrock → Java only accepts a Bedrock MCPACK or ZIP.</p>
       </article>
       <article class="note-card">
         <span class="note-index">02</span>
-        <h3>Version-aware path mapping</h3>
-        <p>This release includes rename correspondences derived from the supplied Java 26.2.x and Bedrock 1.26.50 vanilla references.</p>
+        <h3>Visual conversion viewer</h3>
+        <p>After conversion, inspect blocks, items, mobs, fonts and other images side-by-side on a dedicated results page.</p>
       </article>
       <article class="note-card">
         <span class="note-index">03</span>
         <h3>Transparent limitations</h3>
-        <p>Classic PNG textures are the focus. Models, shaders, OptiFine/CIT, fonts, animation metadata and complex GUI layouts may require manual work.</p>
+        <p>Unsupported textures are marked as skipped in the viewer instead of being silently presented as successfully converted.</p>
       </article>
     </section>
   </main>
