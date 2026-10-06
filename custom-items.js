@@ -564,14 +564,63 @@ export async function convertBedrockCustomItems({ inspection, output, onLog = ()
     const javaModel = `assets/dazen/models/item/${slug}.json`;
     const javaItemDef = `assets/dazen/items/${slug}.json`;
 
-    output.file(javaTexture, bytes, { binary: true });
-    output.file(javaModel, JSON.stringify({
+    const modelJson = JSON.stringify({
       parent: 'minecraft:item/generated',
       textures: { layer0: `dazen:item/${slug}` },
-    }, null, 2));
-    output.file(javaItemDef, JSON.stringify({
+    }, null, 2);
+    const itemDefJson = JSON.stringify({
       model: { type: 'model', model: `dazen:item/${slug}` },
-    }, null, 2));
+    }, null, 2);
+
+    output.file(javaTexture, bytes, { binary: true });
+    output.file(javaModel, modelJson);
+    output.file(javaItemDef, itemDefJson);
+
+    // Ready-to-drop resource folders matching the three supported Java
+    // content plugins. Nexo follows the full vanilla assets structure;
+    // ItemsAdder content packs can merge assets from resourcepack/assets;
+    // Oraxen accepts a full assets tree under pack as well as shortcuts.
+    output.file(
+      `integrations/ItemsAdder/contents/dazen_converted/resourcepack/assets/dazen/textures/item/${slug}.png`,
+      bytes,
+      { binary: true }
+    );
+    output.file(
+      `integrations/ItemsAdder/contents/dazen_converted/resourcepack/assets/dazen/models/item/${slug}.json`,
+      modelJson
+    );
+    output.file(
+      `integrations/ItemsAdder/contents/dazen_converted/resourcepack/assets/dazen/items/${slug}.json`,
+      itemDefJson
+    );
+
+    output.file(
+      `integrations/Nexo/pack/assets/dazen/textures/item/${slug}.png`,
+      bytes,
+      { binary: true }
+    );
+    output.file(
+      `integrations/Nexo/pack/assets/dazen/models/item/${slug}.json`,
+      modelJson
+    );
+    output.file(
+      `integrations/Nexo/pack/assets/dazen/items/${slug}.json`,
+      itemDefJson
+    );
+
+    output.file(
+      `integrations/Oraxen/pack/assets/dazen/textures/item/${slug}.png`,
+      bytes,
+      { binary: true }
+    );
+    output.file(
+      `integrations/Oraxen/pack/assets/dazen/models/item/${slug}.json`,
+      modelJson
+    );
+    output.file(
+      `integrations/Oraxen/pack/assets/dazen/items/${slug}.json`,
+      itemDefJson
+    );
 
     const original = byBedrockId.get(bedrockId) || null;
     const baseItem = original?.baseItem || original?.base_item || 'minecraft:paper';
@@ -629,16 +678,19 @@ export async function convertBedrockCustomItems({ inspection, output, onLog = ()
   }
 
   const integrations = pluginIntegrationFiles(integrationItems);
-  output.file('integrations/ItemsAdder/dazen_converted.yml', integrations.itemsAdder);
-  output.file('integrations/Nexo/dazen_converted.yml', integrations.nexo);
-  output.file('integrations/Oraxen/dazen_converted.yml', integrations.oraxen);
+  output.file(
+    'integrations/ItemsAdder/contents/dazen_converted/configs/dazen_converted.yml',
+    integrations.itemsAdder
+  );
+  output.file('integrations/Nexo/items/dazen_converted.yml', integrations.nexo);
+  output.file('integrations/Oraxen/items/dazen_converted.yml', integrations.oraxen);
   output.file('integrations/README.txt', [
     'Dazen Texture Pack Converter - Java plugin integration helpers',
     '',
     'These files are generated helpers, not a substitute for testing on your server.',
-    'ItemsAdder: copy/adapt the YAML into your contents namespace and keep the generated assets/dazen files in the resource pack.',
-    'Nexo: copy/adapt the YAML into plugins/Nexo/items and import the generated Java resource pack via Nexo external_packs.',
-    'Oraxen: copy/adapt the YAML into plugins/Oraxen/items and merge the generated assets into the Oraxen pack.',
+    'ItemsAdder: integrations/ItemsAdder mirrors contents/dazen_converted/{configs,resourcepack/assets}. Copy the dazen_converted content folder into plugins/ItemsAdder/contents and regenerate the pack.',
+    'Nexo: integrations/Nexo mirrors Nexo/{items,pack/assets}. Copy/adapt these files into plugins/Nexo and regenerate/reload the pack.',
+    'Oraxen: integrations/Oraxen mirrors Oraxen/{items,pack/assets}. Copy/adapt these files into plugins/Oraxen and regenerate the pack.',
     '',
     'For external Bedrock packs without embedded Geyser mappings, minecraft:paper is used as the conservative default base item.',
   ].join('\n'));
