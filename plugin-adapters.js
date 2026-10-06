@@ -87,6 +87,7 @@ function configDisplayName(itemId, item) {
 async function parseItemsAdder(zip, rawNames, pathMap) {
   const hints = [];
   const glyphs = [];
+  const namespaces = new Set();
   const configs = rawNames.filter(n =>
     /(?:^|\/)contents\/[^/]+\/configs\/.*\.ya?ml$/i.test(n) ||
     /(?:^|\/)configs\/.*\.ya?ml$/i.test(n)
@@ -99,6 +100,7 @@ async function parseItemsAdder(zip, rawNames, pathMap) {
 
     const namespace = String(doc?.info?.namespace || '').trim();
     if (!namespace) continue;
+    namespaces.add(namespace);
 
     if (doc.items && typeof doc.items === 'object') {
       for (const [itemId, item] of Object.entries(doc.items)) {
@@ -143,27 +145,48 @@ async function parseItemsAdder(zip, rawNames, pathMap) {
     }
   }
 
-  // ItemsAdder source bundle resources.
+  // ItemsAdder source bundle resources. Modern vendor packs generally use
+  // contents/<namespace>/resourcepack/assets/... while font-image-only packs
+  // often place PNGs directly in contents/<namespace>/textures/.
   for (const actual of rawNames) {
     const marker = actual.toLowerCase().indexOf('/resourcepack/assets/');
     if (marker >= 0 && /(?:^|\/)contents\//i.test(actual)) {
       const normalized = actual.slice(marker + '/resourcepack/'.length);
       addMapped(pathMap, normalized, actual);
-    } else if (/^assets\//i.test(actual)) {
+      continue;
+    }
+
+    const directContent = actual.match(/(?:^|\/)contents\/([^/]+)\/(textures|models|font)\/(.+)$/i);
+    if (directContent) {
+      const [, ns, kind, rel] = directContent;
+      addMapped(pathMap, `assets/${ns}/${kind.toLowerCase()}/${rel}`, actual);
+      continue;
+    }
+
+    if (/^assets\//i.test(actual)) {
       addMapped(pathMap, actual, actual);
+      continue;
+    }
+
+    const rootResource = actual.match(/^(textures|models|font)\/(.+)$/i);
+    if (rootResource && namespaces.size === 1) {
+      const ns = [...namespaces][0];
+      addMapped(pathMap, `assets/${ns}/${rootResource[1].toLowerCase()}/${rootResource[2]}`, actual);
     }
   }
 
-  // Simple ItemsAdder vendor bundles sometimes ship configs/ + textures/ only.
+  // Last-resort filename matching for simple ItemsAdder vendor bundles.
   for (const actual of rawNames) {
-    if (!/^textures\//i.test(actual) || !actual.toLowerCase().endsWith('.png')) continue;
+    if (!actual.toLowerCase().endsWith('.png')) continue;
     for (const hint of [...hints, ...glyphs]) {
-      const ref = hint.textureRef || hint.textureRefs?.[0];
-      if (!ref) continue;
-      const [ns, rel] = ref.split(':');
-      const leaf = rel?.split('/').pop();
-      if (leaf && actual.toLowerCase().endsWith('/' + leaf.toLowerCase() + '.png')) {
-        addMapped(pathMap, `assets/${ns}/textures/${rel}.png`, actual);
+      const refs = hint.textureRef ? [hint.textureRef] : (hint.textureRefs || []);
+      for (const ref of refs) {
+        if (!ref) continue;
+        const [ns, rel] = ref.split(':');
+        const leaf = rel?.split('/').pop();
+        if (leaf && actual.toLowerCase().endsWith('/' + leaf.toLowerCase() + '.png')) {
+          addMapped(pathMap, `assets/${ns}/textures/${rel}.png`, actual);
+        }
       }
     }
   }
@@ -311,8 +334,13 @@ async function parseOraxen(zip, rawNames, pathMap) {
 
 export async function detectJavaPluginBundle(zip, rawNames) {
   const pathMap = makePathMap();
-  const hasIA = rawNames.some(n => /(?:^|\/)ItemsAdder\/(?:contents|data)\//i.test(n)) ||
-    rawNames.some(n => /(?:^|\/)contents\/[^/]+\/(?:configs|resourcepack)\//i.test(n));
+  const hasIA =
+    rawNames.some(n => /(?:^|\/)ItemsAdder\/(?:contents|data)\//i.test(n)) ||
+    rawNames.some(n => /(?:^|\/)contents\/[^/]+\/(?:configs|resourcepack|textures)\//i.test(n)) ||
+    (
+      rawNames.some(n => /^configs\/.*\.ya?ml$/i.test(n)) &&
+      rawNames.some(n => /^textures\/.*\.png$/i.test(n))
+    );
   const hasNexo = rawNames.some(n => /(?:^|\/)Nexo\/(?:items|pack|glyphs)\//i.test(n));
   const hasOraxen = rawNames.some(n => /(?:^|\/)Oraxen\/(?:items|pack|glyphs)\//i.test(n));
 
