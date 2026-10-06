@@ -1038,3 +1038,17 @@ code { color: #e5acb3; }
     width: 100%;
   }
 }
+
+
+.preview-state-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.preview-state-actions .primary-btn,
+.preview-state-actions .secondary-btn {
+  min-width: 150px;
+  justify-content: center;
+}
