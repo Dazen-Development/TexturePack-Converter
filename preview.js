@@ -132,33 +132,58 @@ function renderRows() {
 
 function buildRow(entry) {
   const row = document.createElement('article');
-  row.className = 'comparison-row';
+  row.className = 'comparison-row' + (entry.editable ? ' editable-row' : '');
+  if (entry.editable) {
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
+    row.setAttribute('aria-label', `Edit ${entry.name} conversion`);
+    const openEditor = () => {
+      const entryId = entry.id || `${entry.sourcePath}|${entry.targetPath || ''}`;
+      location.href = `./editor.html?job=${encodeURIComponent(job.id)}&entry=${encodeURIComponent(entryId)}`;
+    };
+    row.addEventListener('click', openEditor);
+    row.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openEditor();
+      }
+    });
+  }
 
   const info = document.createElement('div');
   info.className = 'comparison-info';
   const name = document.createElement('strong');
   name.textContent = entry.name;
   const category = document.createElement('span');
-  category.textContent = entry.category;
+  category.textContent = entry.category + (entry.edited ? ' · Edited' : entry.editable ? ' · Click to edit' : '');
   const path = document.createElement('code');
   path.textContent = entry.sourcePath;
   info.append(name, category, path);
 
-  const source = buildTextureCell(entry.imageBlob, entry.sourcePath, 'Source texture');
+  const sourceBlob = entry.sourceBlob || entry.imageBlob;
+  const targetBlob = entry.targetBlob || (entry.targetPath ? sourceBlob : null);
+  const source = sourceBlob
+    ? buildTextureCell(sourceBlob, entry.sourcePath, 'Source texture')
+    : buildMissingCell('Source preview unavailable');
+
   const arrow = document.createElement('div');
   arrow.className = 'comparison-arrow';
   arrow.textContent = '→';
 
-  const target = entry.targetPath
-    ? buildTextureCell(entry.imageBlob, entry.targetPath, 'Converted texture')
+  const target = entry.targetPath && targetBlob
+    ? buildTextureCell(targetBlob, entry.targetPath, 'Converted texture')
     : buildMissingCell(entry.reason || 'No compatible output');
 
   const status = document.createElement('div');
   status.className = `comparison-status ${entry.status}`;
-  const statusText = entry.status === 'skipped' ? 'Skipped' : entry.status === 'mapped' ? 'Mapped' : 'Compatible';
-  status.innerHTML = `<strong></strong><span></span>`;
-  status.children[0].textContent = statusText;
-  status.children[1].textContent = entry.targetPath || entry.reason || '';
+  const statusText =
+    entry.status === 'skipped' ? 'Skipped' :
+    entry.status === 'unresolved' ? 'Needs Mapping' :
+    entry.status === 'mapped' ? 'Mapped' :
+    'Compatible';
+  status.innerHTML = '<strong></strong><span></span>';
+  status.children[0].textContent = entry.edited ? `${statusText} · Edited` : statusText;
+  status.children[1].textContent = entry.reason || entry.targetPath || '';
 
   row.append(info, source, arrow, target, status);
   return row;
