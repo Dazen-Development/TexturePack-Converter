@@ -282,6 +282,7 @@ function renderOutput(result) {
   const moduleSummary = [
     result.stats.customItems ? `${result.stats.customItems} custom item(s)` : null,
     result.stats.fontGlyphs ? `${result.stats.fontGlyphs} font glyph(s)` : null,
+    result.artifacts?.autoAssignedFonts ? `${result.artifacts.autoAssignedFonts} auto-assigned font mapping(s)` : null,
     result.artifacts?.threeDFallbacks ? `${result.artifacts.threeDFallbacks} 3D item icon fallback(s)` : null,
     result.artifacts?.unresolvedCustomItems?.length ? `${result.artifacts.unresolvedCustomItems.length} item mapping(s) need review` : null,
   ].filter(Boolean).join(' · ');
