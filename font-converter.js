@@ -272,9 +272,15 @@ async function collectJavaBitmapGlyphs(inspection, onLog) {
     if (!info || !Array.isArray(doc?.providers)) continue;
 
     for (const provider of doc.providers) {
-      if (provider?.type !== 'bitmap' || typeof provider.file !== 'string') continue;
+      if (
+        provider?.type !== 'bitmap' ||
+        typeof provider.file !== 'string'
+      ) continue;
 
-      const sourcePath = texturePath(provider.file, info.namespace);
+      const sourcePath = texturePath(
+        provider.file,
+        info.namespace
+      );
       if (!hasFile(inspection, sourcePath)) continue;
       referencedTextures.add(sourcePath);
 
@@ -301,8 +307,8 @@ async function collectJavaBitmapGlyphs(inspection, onLog) {
           const char = chars[col];
           const cp = char.codePointAt(0);
           const page = pageInfo(cp);
-          if (!page || used.has(cp)) continue;
 
+          if (!page || used.has(cp)) continue;
           used.add(cp);
 
           const glyphBlob = await cropBitmap(
@@ -314,14 +320,20 @@ async function collectJavaBitmapGlyphs(inspection, onLog) {
           );
 
           glyphs.push({
-            id: `${info.namespace}:${info.name}:${cp.toString(16)}`,
+            id:
+              `${info.namespace}:${info.name}:${cp.toString(16)}`,
             char,
             codePoint: cp,
             sourcePath,
             sourceBlob: glyphBlob,
             height: Number(provider.height || cellH),
-            ascent: Number(provider.ascent || provider.height || cellH),
+            ascent: Number(
+              provider.ascent ||
+              provider.height ||
+              cellH
+            ),
             page,
+            autoAssigned: false,
           });
 
           if (glyphs.length >= JAVA_GLYPH_LIMIT) {
@@ -331,7 +343,7 @@ async function collectJavaBitmapGlyphs(inspection, onLog) {
             );
             return {
               glyphs,
-              suggestions: [],
+              assignments: [],
               used,
               referencedTextures,
             };
@@ -341,6 +353,7 @@ async function collectJavaBitmapGlyphs(inspection, onLog) {
     }
   }
 
+  // Explicit plugin glyph characters are authoritative when supplied.
   for (const hint of inspection.adapter?.glyphHints || []) {
     if (!hint.resolvable || !hint.char) continue;
 
@@ -371,71 +384,109 @@ async function collectJavaBitmapGlyphs(inspection, onLog) {
       height: hint.height || 8,
       ascent: hint.ascent || 8,
       page,
+      plugin: hint.plugin,
+      autoAssigned: false,
     });
   }
 
-  const suggestions = [];
-  const suggestionSeen = new Set();
-  const suggestionUsed = new Set(used);
+  // When a font/rank image has the same plugin/font structure as mapped
+  // glyphs but no explicit character, assign a deterministic free PUA code
+  // instead of leaving it as "No target mapping". We ALSO generate Java /
+  // ItemsAdder / Nexo / Oraxen config patches so the source side can be made
+  // to use the exact same character.
+  const assignments = [];
+  const assignmentSeen = new Set();
+  const allocationUsed = new Set(used);
 
-  async function addSuggestion({
+  async function addAssignment({
     id,
     sourcePath,
     namespace = 'dazen',
     reason,
     plugin = null,
+    height = 8,
+    ascent = 8,
   }) {
-    if (!sourcePath || suggestionSeen.has(sourcePath) || !hasFile(inspection, sourcePath)) return;
+    if (
+      !sourcePath ||
+      assignmentSeen.has(sourcePath) ||
+      !hasFile(inspection, sourcePath)
+    ) return;
 
-    const cp = allocateSuggestedCodePoint(suggestionUsed);
+    const cp = allocateSuggestedCodePoint(allocationUsed);
     if (cp == null) return;
 
     const file = sourceFile(inspection, sourcePath);
     const bytes = await file.async('uint8array');
     const blob = new Blob([bytes], { type: 'image/png' });
     const page = pageInfo(cp);
-    suggestionSeen.add(sourcePath);
+    const char = String.fromCodePoint(cp);
+    const snippets = makeSuggestionSnippets({
+      cp,
+      sourcePath,
+      id,
+      namespace,
+    });
 
-    suggestions.push({
-      id: id || `suggested:${sourcePath}`,
-      name: safeKey(id || sourcePath.split('/').pop()),
+    assignmentSeen.add(sourcePath);
+    referencedTextures.add(sourcePath);
+    used.add(cp);
+
+    const assignment = {
+      id: id || `auto:${sourcePath}`,
+      name: safeKey(
+        id || sourcePath.split('/').pop()
+      ),
+      namespace,
       sourcePath,
       sourceBlob: blob,
       plugin,
       reason,
-      suggestion: {
-        char: String.fromCodePoint(cp),
-        codePoint: cp,
-        unicode: unicodeLabel(cp),
-        escaped: escapedUnicode(cp),
-        pageHex: page.pageHex,
-        slotHex: page.slotHex,
-        row: page.row,
-        col: page.col,
-        snippets: makeSuggestionSnippets({
-          cp,
-          sourcePath,
-          id,
-          namespace,
-        }),
-      },
+      height,
+      ascent,
+      char,
+      codePoint: cp,
+      page,
+      snippets,
+    };
+
+    assignments.push(assignment);
+
+    glyphs.push({
+      id: assignment.id,
+      char,
+      codePoint: cp,
+      sourcePath,
+      sourceBlob: blob,
+      height,
+      ascent,
+      page,
+      plugin,
+      autoAssigned: true,
+      assignmentReason: reason,
+      configSuggestions: snippets,
     });
   }
 
   for (const hint of inspection.adapter?.glyphHints || []) {
-    if (hint.resolvable || explicitHintIds.has(hint.id)) continue;
+    if (hint.resolvable || explicitHintIds.has(hint.id)) {
+      continue;
+    }
 
     const sourcePath = texturePath(
       hint.textureRef,
       hint.namespace || 'minecraft'
     );
-    await addSuggestion({
+
+    await addAssignment({
       id: hint.id,
       sourcePath,
       namespace: hint.namespace || 'dazen',
       plugin: hint.plugin,
+      height: hint.height || 8,
+      ascent: hint.ascent || 8,
       reason:
-        'This plugin font image has no explicit Unicode character in the source config. A free Bedrock-safe private-use character is suggested below.',
+        'The source plugin defines this font/rank image but does not expose a character. The converter assigned a deterministic free private-use character and generated matching source-side config patches.',
     });
   }
 
@@ -443,22 +494,25 @@ async function collectJavaBitmapGlyphs(inspection, onLog) {
     if (
       !candidateFontTexture(path) ||
       referencedTextures.has(path) ||
-      suggestionSeen.has(path)
+      assignmentSeen.has(path)
     ) continue;
 
-    const match = path.match(/^assets\/([^/]+)\/textures\//i);
-    await addSuggestion({
+    const match = path.match(
+      /^assets\/([^/]+)\/textures\//i
+    );
+
+    await addAssignment({
       id: `unmapped:${path}`,
       sourcePath: path,
       namespace: match?.[1] || 'dazen',
       reason:
-        'This looks like a rank/font/emoji texture, but it is not referenced by the current Java font JSON. A character and configuration format are suggested below.',
+        'This rank/font/emoji PNG was not referenced by the current Java font JSON. The converter assigned a deterministic free private-use character and generated source-side mapping examples.',
     });
   }
 
   return {
     glyphs,
-    suggestions,
+    assignments,
     used,
     referencedTextures,
   };
@@ -478,32 +532,109 @@ async function measureGlyphs(glyphs) {
   return measured;
 }
 
-function createSuggestionPreview(suggestion) {
-  const s = suggestion.suggestion;
+function assignmentResourceInfo(sourcePath) {
+  const match = String(sourcePath || '').match(
+    /^assets\/([^/]+)\/textures\/(.+\.png)$/i
+  );
+  if (!match) return null;
 
   return {
-    id: `font-suggestion:${suggestion.id}`,
-    name: `${suggestion.name} · suggested ${s.unicode}`,
-    category: 'Fonts',
-    sourcePath: suggestion.sourcePath,
-    targetPath: `Suggested → font/glyph_${s.pageHex}.png #${s.slotHex}`,
-    status: 'unresolved',
-    reason: suggestion.reason,
-    sourceBlob: suggestion.sourceBlob,
-    targetBlob: null,
-    editable: false,
-    metadata: {
-      char: s.char,
-      codePoint: s.codePoint,
-      pageHex: s.pageHex,
-      slotHex: s.slotHex,
-      row: s.row,
-      col: s.col,
-      suggested: true,
-      plugin: suggestion.plugin,
-      configSuggestions: s.snippets,
-    },
+    namespace: match[1],
+    relative: match[2],
+    ref:
+      `${match[1]}:${match[2].replace(/\.png$/i, '')}`,
   };
+}
+
+function writeAutoAssignmentPatches(output, assignments) {
+  if (!assignments.length) return;
+
+  const byNamespace = new Map();
+
+  for (const assignment of assignments) {
+    const resource =
+      assignmentResourceInfo(assignment.sourcePath);
+    if (!resource) continue;
+
+    if (!byNamespace.has(resource.namespace)) {
+      byNamespace.set(resource.namespace, []);
+    }
+
+    byNamespace.get(resource.namespace).push({
+      ...assignment,
+      resource,
+      key: safeKey(
+        assignment.id?.split(':').pop() ||
+        resource.relative.split('/').pop()
+      ),
+    });
+  }
+
+  for (const [namespace, entries] of byNamespace) {
+    const javaProviders = entries.map(entry => ({
+      type: 'bitmap',
+      file:
+        `${namespace}:${entry.resource.relative}`,
+      ascent: Number(entry.ascent || 8),
+      height: Number(entry.height || 8),
+      chars: [entry.char],
+    }));
+
+    output.file(
+      `integrations/Java/assets/${namespace}/font/dazen_auto_assigned.json`,
+      JSON.stringify({ providers: javaProviders }, null, 2)
+    );
+
+    const ia = [
+      'info:',
+      `  namespace: ${namespace}`,
+      'font_images:',
+    ];
+
+    const nexo = [];
+    const oraxen = [];
+
+    for (const entry of entries) {
+      ia.push(
+        `  ${entry.key}:`,
+        `    path: "${entry.resource.relative}"`,
+        `    symbol: "${entry.char}"`,
+        `    scale_ratio: ${Number(entry.height || 8)}`,
+        `    y_position: ${Number(entry.ascent || entry.height || 8)}`
+      );
+
+      nexo.push(
+        `${entry.key}:`,
+        `  texture: ${entry.resource.ref}`,
+        `  ascent: ${Number(entry.ascent || 8)}`,
+        `  height: ${Number(entry.height || 8)}`,
+        `  char: "${entry.char}"`
+      );
+
+      oraxen.push(
+        `${entry.key}:`,
+        `  texture: ${entry.resource.ref}`,
+        `  ascent: ${Number(entry.ascent || 8)}`,
+        `  height: ${Number(entry.height || 8)}`,
+        `  char: "${entry.char}"`
+      );
+    }
+
+    output.file(
+      `integrations/ItemsAdder/contents/${namespace}/configs/dazen_auto_assigned_font_images.yml`,
+      ia.join('\n') + '\n'
+    );
+
+    output.file(
+      `integrations/Nexo/glyphs/dazen_auto_assigned_${namespace}.yml`,
+      nexo.join('\n') + '\n'
+    );
+
+    output.file(
+      `integrations/Oraxen/glyphs/dazen_auto_assigned_${namespace}.yml`,
+      oraxen.join('\n') + '\n'
+    );
+  }
 }
 
 export async function convertJavaFontsToBedrock({
@@ -511,23 +642,37 @@ export async function convertJavaFontsToBedrock({
   output,
   onLog = () => {},
 }) {
-  const collected = await collectJavaBitmapGlyphs(inspection, onLog);
-  const measured = await measureGlyphs(collected.glyphs);
+  const collected =
+    await collectJavaBitmapGlyphs(
+      inspection,
+      onLog
+    );
+
+  const measured =
+    await measureGlyphs(collected.glyphs);
+
   const previewEntries = [];
   const pageGroups = new Map();
 
   for (const glyph of measured) {
     const key = glyph.page.pageHex;
-    if (!pageGroups.has(key)) pageGroups.set(key, []);
+    if (!pageGroups.has(key)) {
+      pageGroups.set(key, []);
+    }
     pageGroups.get(key).push(glyph);
   }
 
   for (const [key, glyphs] of pageGroups) {
     const largest = glyphs.reduce(
       (max, glyph) =>
-        Math.max(max, glyph.pixelWidth, glyph.pixelHeight),
+        Math.max(
+          max,
+          glyph.pixelWidth,
+          glyph.pixelHeight
+        ),
       16
     );
+
     const cellSize = nextPowerOfTwo(largest);
 
     if (largest > MAX_ATLAS_CELL) {
@@ -537,7 +682,10 @@ export async function convertJavaFontsToBedrock({
       );
     }
 
-    const atlas = canvas(cellSize * 16, cellSize * 16);
+    const atlas = canvas(
+      cellSize * 16,
+      cellSize * 16
+    );
     const ctx = atlas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
 
@@ -546,35 +694,61 @@ export async function convertJavaFontsToBedrock({
     for (const glyph of glyphs) {
       const x =
         glyph.page.col * cellSize +
-        Math.floor((cellSize - glyph.pixelWidth) / 2);
+        Math.floor(
+          (cellSize - glyph.pixelWidth) / 2
+        );
+
       const y =
         glyph.page.row * cellSize +
-        Math.floor((cellSize - glyph.pixelHeight) / 2);
+        Math.floor(
+          (cellSize - glyph.pixelHeight) / 2
+        );
 
       ctx.drawImage(glyph.bitmap, x, y);
       usedSlots.push(glyph.page.slot);
 
-      const isolated = canvas(cellSize, cellSize);
-      const isolatedCtx = isolated.getContext('2d');
+      const isolated = canvas(
+        cellSize,
+        cellSize
+      );
+      const isolatedCtx =
+        isolated.getContext('2d');
       isolatedCtx.imageSmoothingEnabled = false;
+
       isolatedCtx.drawImage(
         glyph.bitmap,
-        Math.floor((cellSize - glyph.pixelWidth) / 2),
-        Math.floor((cellSize - glyph.pixelHeight) / 2)
+        Math.floor(
+          (cellSize - glyph.pixelWidth) / 2
+        ),
+        Math.floor(
+          (cellSize - glyph.pixelHeight) / 2
+        )
       );
 
-      const targetBlob = await canvasBlob(isolated);
-      const atlasPath = `font/glyph_${key}.png`;
+      const targetBlob =
+        await canvasBlob(isolated);
+
+      const atlasPath =
+        `font/glyph_${key}.png`;
+
+      const autoText = glyph.autoAssigned
+        ? ' Auto-assigned because the source plugin/image had no explicit character; apply one of the generated Java/plugin config patches so the source side uses the same character.'
+        : '';
 
       previewEntries.push({
         id: `font:${glyph.codePoint}`,
-        name: `${unicodeLabel(glyph.codePoint)} · slot ${glyph.page.slotHex}`,
+        name:
+          `${unicodeLabel(glyph.codePoint)} · slot ${glyph.page.slotHex}` +
+          (glyph.autoAssigned
+            ? ' · auto-mapped'
+            : ''),
         category: 'Fonts',
         sourcePath: glyph.sourcePath,
-        targetPath: `${atlasPath} #${glyph.page.slotHex}`,
+        targetPath:
+          `${atlasPath} #${glyph.page.slotHex}`,
         status: 'mapped',
         reason:
-          `Character ${unicodeLabel(glyph.codePoint)} maps to glyph_${key}.png cell ${glyph.page.slotHex} (row ${glyph.page.row.toString(16).toUpperCase()}, column ${glyph.page.col.toString(16).toUpperCase()}). Artwork is kept at its original pixel size and centered by default.`,
+          `Character ${unicodeLabel(glyph.codePoint)} maps to glyph_${key}.png cell ${glyph.page.slotHex} (row ${glyph.page.row.toString(16).toUpperCase()}, column ${glyph.page.col.toString(16).toUpperCase()}). Artwork is kept at its original pixel size and centered by default.${autoText}`,
         sourceBlob: glyph.sourceBlob,
         targetBlob,
         editable: true,
@@ -588,7 +762,8 @@ export async function convertJavaFontsToBedrock({
         metadata: {
           char: glyph.char,
           codePoint: glyph.codePoint,
-          unicode: unicodeLabel(glyph.codePoint),
+          unicode:
+            unicodeLabel(glyph.codePoint),
           pageHex: key,
           slotHex: glyph.page.slotHex,
           row: glyph.page.row,
@@ -596,19 +771,35 @@ export async function convertJavaFontsToBedrock({
           javaHeight: glyph.height,
           javaAscent: glyph.ascent,
           cellSize,
+          autoAssigned:
+            !!glyph.autoAssigned,
+          suggested:
+            !!glyph.autoAssigned,
+          plugin:
+            glyph.plugin || null,
+          configSuggestions:
+            glyph.configSuggestions || null,
         },
       });
     }
 
-    const atlasBlob = await canvasBlob(atlas);
-    output.file(`font/glyph_${key}.png`, atlasBlob);
+    const atlasBlob =
+      await canvasBlob(atlas);
+
+    output.file(
+      `font/glyph_${key}.png`,
+      atlasBlob
+    );
 
     previewEntries.unshift({
       id: `font-atlas:${key}`,
-      name: `Glyph Page ${key} · ${glyphs.length} mapped character(s)`,
+      name:
+        `Glyph Page ${key} · ${glyphs.length} mapped character(s)`,
       category: 'Fonts',
-      sourcePath: 'Java bitmap providers',
-      targetPath: `font/glyph_${key}.png`,
+      sourcePath:
+        'Java bitmap providers / auto-assigned font images',
+      targetPath:
+        `font/glyph_${key}.png`,
       status: 'mapped',
       reason:
         `Full 16×16 Bedrock glyph page. Each cell is ${cellSize}×${cellSize}px; the two hex digits printed by the viewer are the row+column slot (00–FF).`,
@@ -619,47 +810,76 @@ export async function convertJavaFontsToBedrock({
         atlasPage: true,
         pageHex: key,
         cellSize,
-        atlasSize: cellSize * 16,
+        atlasSize:
+          cellSize * 16,
         usedSlots,
-        rangeStart: `U+${key}00`,
-        rangeEnd: `U+${key}FF`,
+        rangeStart:
+          `U+${key}00`,
+        rangeEnd:
+          `U+${key}FF`,
       },
     });
   }
 
-  const suggestionEntries = collected.suggestions.map(
-    createSuggestionPreview
-  );
-  previewEntries.push(...suggestionEntries);
+  if (collected.assignments.length) {
+    writeAutoAssignmentPatches(
+      output,
+      collected.assignments
+    );
 
-  if (collected.suggestions.length) {
-    const report = collected.suggestions.map(item => ({
-      id: item.id,
-      source_texture: item.sourcePath,
-      plugin: item.plugin,
-      reason: item.reason,
-      suggested_character: item.suggestion.char,
-      unicode: item.suggestion.unicode,
-      bedrock_page: `glyph_${item.suggestion.pageHex}.png`,
-      bedrock_slot: item.suggestion.slotHex,
-      configuration_examples: item.suggestion.snippets,
-    }));
+    const report =
+      collected.assignments.map(item => ({
+        id: item.id,
+        source_texture:
+          item.sourcePath,
+        plugin: item.plugin,
+        reason: item.reason,
+        assigned_character:
+          item.char,
+        unicode:
+          unicodeLabel(item.codePoint),
+        bedrock_page:
+          `glyph_${item.page.pageHex}.png`,
+        bedrock_slot:
+          item.page.slotHex,
+        configuration_examples:
+          item.snippets,
+      }));
 
     output.file(
-      'dazen/font-character-suggestions.json',
+      'dazen/font-character-assignments.json',
       JSON.stringify(report, null, 2)
     );
 
+    output.file(
+      'dazen/APPLY_FONT_CHARACTER_PATCHES.txt',
+      [
+        'Dazen Texture Pack Converter - auto-assigned font characters',
+        '',
+        `${collected.assignments.length} rank/font image(s) had no explicit Java/plugin character.`,
+        'The converter assigned deterministic private-use characters and mapped them into the Bedrock glyph atlas.',
+        '',
+        'IMPORTANT:',
+        'For Java/Bedrock cross-play to use the same symbols, apply the matching generated patch for your Java-side plugin/resource pack:',
+        '- integrations/Java/',
+        '- integrations/ItemsAdder/',
+        '- integrations/Nexo/',
+        '- integrations/Oraxen/',
+        '',
+        'The conversion viewer shows the assigned character, Unicode code point, Bedrock glyph page/slot, and copy buttons.',
+      ].join('\n')
+    );
+
     onLog(
-      'warn',
-      `${collected.suggestions.length} rank/font image(s) are not assigned to an explicit Java character. Suggested free PUA characters and Java/ItemsAdder/Nexo/Oraxen formats were added to the result viewer and dazen/font-character-suggestions.json.`
+      'success',
+      `Auto-mapped ${collected.assignments.length} rank/font image(s) that had no explicit target character and generated matching Java/ItemsAdder/Nexo/Oraxen character patches.`
     );
   }
 
   if (measured.length) {
     onLog(
       'success',
-      `Fonts: mapped ${measured.length} Java private-use bitmap glyph(s) into ${pageGroups.size} Bedrock glyph atlas page(s) using pixel-preserving atlas cells.`
+      `Fonts: mapped ${measured.length} Java/plugin bitmap glyph(s) into ${pageGroups.size} Bedrock glyph atlas page(s) using pixel-preserving atlas cells.`
     );
   }
 
@@ -667,7 +887,9 @@ export async function convertJavaFontsToBedrock({
     converted: measured.length,
     previewEntries,
     pages: pageGroups.size,
-    unresolved: collected.suggestions.length,
+    unresolved: 0,
+    autoAssigned:
+      collected.assignments.length,
   };
 }
 
