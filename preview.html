@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b0d12" />
+  <meta name="description" content="Inspect Java and Bedrock texture conversion results side-by-side." />
+  <title>Conversion Preview · Dazen Texture Pack Converter</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="preview-page">
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+
+  <header class="site-header shell">
+    <a class="brand" href="./">
+      <span class="brand-mark">D</span>
+      <span>
+        <strong>Dazen Development</strong>
+        <small>Conversion Preview</small>
+      </span>
+    </a>
+    <div class="header-actions">
+      <span class="privacy-pill">Preview stored on this device</span>
+      <a class="ghost-link" href="./">← New conversion</a>
+    </div>
+  </header>
+
+  <main class="shell preview-main">
+    <section id="preview-loading" class="preview-state-card">
+      <div class="preview-spinner"></div>
+      <h1>Loading conversion preview…</h1>
+      <p>Reading the locally stored conversion result from your browser.</p>
+    </section>
+
+    <section id="preview-missing" class="preview-state-card" hidden>
+      <span class="empty-icon">!</span>
+      <h1>Conversion preview not found</h1>
+      <p>This preview may have been cleared by the browser, opened on another device, or replaced by newer conversions.</p>
+      <a class="primary-btn inline-btn" href="./">Start a new conversion →</a>
+    </section>
+
+    <div id="preview-content" hidden>
+      <section class="preview-hero">
+        <div>
+          <p class="section-kicker">Conversion result</p>
+          <h1 id="preview-title">Java → Bedrock</h1>
+          <p id="preview-source" class="preview-source"></p>
+        </div>
+        <div class="preview-actions">
+          <button id="preview-download" class="primary-btn" type="button">
+            <span>Download Pack</span><span>↓</span>
+          </button>
+          <a class="ghost-link large" href="./">Convert Another</a>
+        </div>
+      </section>
+
+      <section class="preview-summary-grid" aria-label="Conversion summary">
+        <article><span>Converted</span><strong id="sum-converted">0</strong></article>
+        <article><span>Mapped</span><strong id="sum-mapped">0</strong></article>
+        <article><span>Skipped</span><strong id="sum-skipped">0</strong></article>
+        <article><span>Preview images</span><strong id="sum-previewed">0</strong></article>
+      </section>
+
+      <section class="preview-browser">
+        <div class="preview-toolbar">
+          <div class="preview-tabs" id="category-tabs" role="tablist"></div>
+          <label class="preview-search">
+            <span>⌕</span>
+            <input id="preview-search" type="search" placeholder="Search texture names or paths…" autocomplete="off" />
+          </label>
+        </div>
+
+        <div class="comparison-head" aria-hidden="true">
+          <span>Texture</span>
+          <span id="source-edition-label">Java source</span>
+          <span class="comparison-arrow">→</span>
+          <span id="target-edition-label">Bedrock output</span>
+          <span>Status</span>
+        </div>
+
+        <div id="comparison-list" class="comparison-list"></div>
+
+        <div id="comparison-empty" class="comparison-empty" hidden>
+          <span class="empty-icon">⌕</span>
+          <strong>No matching textures</strong>
+          <p>Try a different category or search term.</p>
+        </div>
+      </section>
+
+      <p class="preview-footnote" id="preview-footnote"></p>
+    </div>
+  </main>
+
+  <script type="module" src="./preview.js"></script>
+</body>
+</html>
