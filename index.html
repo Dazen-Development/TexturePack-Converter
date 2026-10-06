@@ -163,6 +163,8 @@
           <div><span>Mapped</span><strong id="output-mapped">0</strong></div>
           <div><span>Compatible</span><strong id="output-passthrough">0</strong></div>
           <div><span>Skipped</span><strong id="output-skipped">0</strong></div>
+          <div><span>Custom items</span><strong id="output-custom-items">0</strong></div>
+          <div><span>Font glyphs</span><strong id="output-fonts">0</strong></div>
           <div><span>Previewable</span><strong id="output-previewable">0</strong></div>
         </div>
 
@@ -170,8 +172,11 @@
           <button id="download-output" class="primary-btn" type="button">
             <span>Download Pack</span><span>↓</span>
           </button>
+          <button id="download-geyser-mappings" class="secondary-btn" type="button" hidden>
+            <span>Geyser Mappings</span><span>↓</span>
+          </button>
           <button id="view-output" class="secondary-btn" type="button">
-            <span>View Conversion</span><span>↗</span>
+            <span>View / Edit Conversion</span><span>↗</span>
           </button>
         </div>
       </div>
@@ -228,6 +233,7 @@
     <p class="legal">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
   </footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
   <script type="module" src="./app.js"></script>
 </body>
