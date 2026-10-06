@@ -90,7 +90,8 @@ async function parseItemsAdder(zip, rawNames, pathMap) {
   const namespaces = new Set();
   const configs = rawNames.filter(n =>
     /(?:^|\/)contents\/[^/]+\/configs\/.*\.ya?ml$/i.test(n) ||
-    /(?:^|\/)configs\/.*\.ya?ml$/i.test(n)
+    /(?:^|\/)configs\/.*\.ya?ml$/i.test(n) ||
+    /(?:^|\/)data\/items_packs\/[^/]+\/.*\.ya?ml$/i.test(n)
   );
 
   for (const path of configs) {
@@ -153,6 +154,14 @@ async function parseItemsAdder(zip, rawNames, pathMap) {
     if (marker >= 0 && /(?:^|\/)contents\//i.test(actual)) {
       const normalized = actual.slice(marker + '/resourcepack/'.length);
       addMapped(pathMap, normalized, actual);
+      continue;
+    }
+
+    const legacyData = actual.match(
+      /(?:^|\/)data\/resource_pack\/(assets\/.+)$/i
+    );
+    if (legacyData) {
+      addMapped(pathMap, legacyData[1], actual);
       continue;
     }
 
@@ -343,6 +352,10 @@ export async function detectJavaPluginBundle(zip, rawNames) {
   const hasIA =
     usableNames.some(n => /(?:^|\/)ItemsAdder\/(?:contents|data)\//i.test(n)) ||
     usableNames.some(n => /(?:^|\/)contents\/[^/]+\/(?:configs|resourcepack|textures)\//i.test(n)) ||
+    (
+      usableNames.some(n => /(?:^|\/)data\/items_packs\/[^/]+\/.*\.ya?ml$/i.test(n)) &&
+      usableNames.some(n => /(?:^|\/)data\/resource_pack\/assets\//i.test(n))
+    ) ||
     (
       usableNames.some(n => /^configs\/.*\.ya?ml$/i.test(n)) &&
       usableNames.some(n => /^textures\/.*\.png$/i.test(n))
