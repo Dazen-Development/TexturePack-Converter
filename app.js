@@ -1,24 +1,36 @@
 import { readFileWithProgress, inspectPack, convertPack, formatBytes } from './converter.js';
+import { saveConversionJob, makeJobId } from './preview-storage.js';
 
 const state = {
   direction: 'java-to-bedrock',
-  java: { file: null, buffer: null, inspection: null },
-  bedrock: { file: null, buffer: null, inspection: null },
+  source: { file: null, buffer: null, inspection: null },
   busy: false,
+  latestResult: null,
+  previewJobId: null,
 };
 
 const refs = {
   directionButtons: [...document.querySelectorAll('.direction-btn')],
-  cards: { java: document.querySelector('[data-side="java"]'), bedrock: document.querySelector('[data-side="bedrock"]') },
-  input: { java: document.querySelector('#java-file'), bedrock: document.querySelector('#bedrock-file') },
-  dropzone: { java: document.querySelector('#java-dropzone'), bedrock: document.querySelector('#bedrock-dropzone') },
-  fileName: { java: document.querySelector('#java-file-name'), bedrock: document.querySelector('#bedrock-file-name') },
-  status: { java: document.querySelector('#java-status'), bedrock: document.querySelector('#bedrock-status') },
-  summary: { java: document.querySelector('#java-summary'), bedrock: document.querySelector('#bedrock-summary') },
-  progressWrap: { java: document.querySelector('#java-progress-wrap'), bedrock: document.querySelector('#bedrock-progress-wrap') },
-  progress: { java: document.querySelector('#java-progress'), bedrock: document.querySelector('#bedrock-progress') },
-  progressText: { java: document.querySelector('#java-progress-text'), bedrock: document.querySelector('#bedrock-progress-text') },
-  progressLabel: { java: document.querySelector('#java-progress-label'), bedrock: document.querySelector('#bedrock-progress-label') },
+  sourceIcon: document.querySelector('#source-edition-icon'),
+  sourceTitle: document.querySelector('#source-edition-title'),
+  sourceCopy: document.querySelector('#source-edition-copy'),
+  sourceStatus: document.querySelector('#source-status'),
+  sourceVersion: document.querySelector('#source-version'),
+  targetVersionLabel: document.querySelector('#target-version-label'),
+  input: document.querySelector('#source-file'),
+  dropzone: document.querySelector('#source-dropzone'),
+  dropzoneTitle: document.querySelector('#dropzone-title'),
+  dropzoneSubtitle: document.querySelector('#dropzone-subtitle'),
+  fileName: document.querySelector('#source-file-name'),
+  progressWrap: document.querySelector('#source-progress-wrap'),
+  progress: document.querySelector('#source-progress'),
+  progressText: document.querySelector('#source-progress-text'),
+  progressLabel: document.querySelector('#source-progress-label'),
+  summary: document.querySelector('#source-summary'),
+  routeSourceIcon: document.querySelector('#route-source-icon'),
+  routeTargetIcon: document.querySelector('#route-target-icon'),
+  routeSourceName: document.querySelector('#route-source-name'),
+  routeTargetName: document.querySelector('#route-target-name'),
   convertBtn: document.querySelector('#convert-btn'),
   actionTitle: document.querySelector('#action-title'),
   actionSubtitle: document.querySelector('#action-subtitle'),
@@ -26,184 +38,339 @@ const refs = {
   includeReport: document.querySelector('#include-report'),
   console: document.querySelector('#console'),
   clearConsole: document.querySelector('#clear-console'),
+  output: document.querySelector('#conversion-output'),
+  outputSummary: document.querySelector('#output-summary'),
+  outputFileName: document.querySelector('#output-file-name'),
+  outputFileMeta: document.querySelector('#output-file-meta'),
+  outputFileIcon: document.querySelector('.output-file-icon'),
+  outputMapped: document.querySelector('#output-mapped'),
+  outputPassthrough: document.querySelector('#output-passthrough'),
+  outputSkipped: document.querySelector('#output-skipped'),
+  outputPreviewable: document.querySelector('#output-previewable'),
+  downloadOutput: document.querySelector('#download-output'),
+  viewOutput: document.querySelector('#view-output'),
 };
 
 for (const button of refs.directionButtons) {
   button.addEventListener('click', () => {
+    if (state.busy || button.dataset.direction === state.direction) return;
     state.direction = button.dataset.direction;
     refs.directionButtons.forEach(b => b.classList.toggle('active', b === button));
-    updateUi();
-    log('info', `Direction set to ${state.direction === 'java-to-bedrock' ? 'Java → Bedrock' : 'Bedrock → Java'}.`);
+    resetSource();
+    configureDirection();
+    log('info', `Direction set to ${directionLabel()}.`);
   });
 }
 
-for (const edition of ['java', 'bedrock']) setupDropzone(edition);
-refs.clearConsole.addEventListener('click', () => { refs.console.innerHTML = ''; log('info', 'Console cleared.'); });
+refs.dropzone.addEventListener('click', () => !state.busy && refs.input.click());
+refs.dropzone.addEventListener('keydown', event => {
+  if ((event.key === 'Enter' || event.key === ' ') && !state.busy) {
+    event.preventDefault();
+    refs.input.click();
+  }
+});
+refs.input.addEventListener('change', () => {
+  if (refs.input.files?.[0]) loadPack(refs.input.files[0]);
+});
+
+for (const eventName of ['dragenter', 'dragover']) {
+  refs.dropzone.addEventListener(eventName, event => {
+    event.preventDefault();
+    if (!state.busy) refs.dropzone.classList.add('dragover');
+  });
+}
+for (const eventName of ['dragleave', 'drop']) {
+  refs.dropzone.addEventListener(eventName, event => {
+    event.preventDefault();
+    refs.dropzone.classList.remove('dragover');
+  });
+}
+refs.dropzone.addEventListener('drop', event => {
+  if (state.busy) return;
+  const file = event.dataTransfer?.files?.[0];
+  if (file) loadPack(file);
+});
+
+refs.clearConsole.addEventListener('click', () => {
+  refs.console.innerHTML = '';
+  log('info', 'Console cleared.');
+});
 refs.convertBtn.addEventListener('click', startConversion);
-updateUi();
+refs.downloadOutput.addEventListener('click', downloadLatestOutput);
+refs.viewOutput.addEventListener('click', () => {
+  if (!state.previewJobId) return;
+  location.href = `./preview.html?job=${encodeURIComponent(state.previewJobId)}`;
+});
 
-function setupDropzone(edition) {
-  const zone = refs.dropzone[edition];
-  const input = refs.input[edition];
-  zone.addEventListener('click', () => !state.busy && input.click());
-  zone.addEventListener('keydown', event => {
-    if ((event.key === 'Enter' || event.key === ' ') && !state.busy) { event.preventDefault(); input.click(); }
-  });
-  input.addEventListener('change', () => input.files?.[0] && loadPack(edition, input.files[0]));
-  for (const eventName of ['dragenter', 'dragover']) zone.addEventListener(eventName, event => { event.preventDefault(); if (!state.busy) zone.classList.add('dragover'); });
-  for (const eventName of ['dragleave', 'drop']) zone.addEventListener(eventName, event => { event.preventDefault(); zone.classList.remove('dragover'); });
-  zone.addEventListener('drop', event => {
-    if (state.busy) return;
-    const file = event.dataTransfer?.files?.[0];
-    if (file) loadPack(edition, file);
-  });
-}
+configureDirection();
 
-async function loadPack(edition, file) {
+async function loadPack(file) {
+  const edition = sourceEdition();
   const ext = file.name.toLowerCase().split('.').pop();
   const allowed = edition === 'java' ? ['zip'] : ['zip', 'mcpack'];
+
+  clearOutput();
+
   if (!allowed.includes(ext)) {
-    setStatus(edition, 'invalid', 'Invalid');
-    refs.summary[edition].textContent = `Unsupported file type .${ext || 'unknown'}.`;
-    log('error', `${file.name}: expected ${allowed.map(x => '.' + x).join(' or ')}.`);
+    setStatus('invalid', 'Invalid');
+    refs.summary.textContent = `Unsupported file type .${ext || 'unknown'}. Expected ${allowed.map(x => '.' + x).join(' or ')}.`;
+    log('error', `${file.name}: expected ${allowed.map(x => '.' + x).join(' or ')} for a ${capitalize(edition)} source pack.`);
     return;
   }
 
-  state[edition] = { file, buffer: null, inspection: null };
-  refs.fileName[edition].textContent = `${file.name} · ${formatBytes(file.size)}`;
-  refs.progressWrap[edition].hidden = false;
-  refs.progressLabel[edition].textContent = 'Reading local file…';
-  setProgress(edition, 0);
-  setStatus(edition, 'scanning', 'Scanning');
-  refs.summary[edition].textContent = 'Reading archive and validating structure…';
-  updateUi();
-  log('info', `Scanning ${capitalize(edition)} pack: ${file.name} (${formatBytes(file.size)}).`);
+  state.source = { file, buffer: null, inspection: null };
+  refs.fileName.textContent = `${file.name} · ${formatBytes(file.size)}`;
+  refs.progressWrap.hidden = false;
+  refs.progressLabel.textContent = 'Reading local file…';
+  setProgress(0);
+  setStatus('scanning', 'Scanning');
+  refs.summary.textContent = 'Reading archive and validating its resource-pack architecture…';
+  updateAction();
+  log('info', `Scanning ${capitalize(edition)} source pack: ${file.name} (${formatBytes(file.size)}).`);
 
   try {
-    const buffer = await readFileWithProgress(file, pct => setProgress(edition, Math.min(pct * 0.72, 72)));
-    refs.progressLabel[edition].textContent = 'Validating architecture…';
-    setProgress(edition, 82);
+    const buffer = await readFileWithProgress(file, pct => setProgress(Math.min(pct * 0.72, 72)));
+    refs.progressLabel.textContent = 'Validating architecture…';
+    setProgress(82);
+
     const inspection = await inspectPack(buffer, edition);
-    setProgress(edition, 100);
-    state[edition].buffer = buffer;
-    state[edition].inspection = inspection;
+    setProgress(100);
+    state.source.buffer = buffer;
+    state.source.inspection = inspection;
 
     if (inspection.valid) {
-      setStatus(edition, 'valid', 'Verified');
-      refs.summary[edition].innerHTML = `<strong>Valid ${capitalize(edition)} pack.</strong> ${inspection.counts.files.toLocaleString()} files · ${inspection.counts.png.toLocaleString()} PNG textures${inspection.rootPrefix ? ` · wrapper folder detected` : ''}.`;
-      log('success', `${capitalize(edition)} architecture verified: ${inspection.counts.files.toLocaleString()} files, ${inspection.counts.png.toLocaleString()} PNG textures.`);
+      setStatus('valid', 'Verified');
+      refs.summary.innerHTML =
+        `<strong>Valid ${capitalize(edition)} source.</strong> ` +
+        `${inspection.counts.files.toLocaleString()} files · ` +
+        `${inspection.counts.png.toLocaleString()} PNG textures` +
+        `${inspection.rootPrefix ? ' · wrapper folder detected' : ''}.`;
+
+      log(
+        'success',
+        `${capitalize(edition)} architecture verified: ${inspection.counts.files.toLocaleString()} files, ${inspection.counts.png.toLocaleString()} PNG textures.`
+      );
       for (const warning of inspection.warnings) log('warn', warning);
-      autoDirectionFor(edition);
     } else {
-      setStatus(edition, 'invalid', 'Rejected');
-      refs.summary[edition].textContent = inspection.error;
+      setStatus('invalid', 'Rejected');
+      refs.summary.textContent = inspection.error;
       log('error', `${file.name}: ${inspection.error}`);
     }
   } catch (error) {
-    state[edition].inspection = null;
-    setStatus(edition, 'invalid', 'Error');
-    setProgress(edition, 0);
-    refs.summary[edition].textContent = error.message || String(error);
+    state.source.inspection = null;
+    setStatus('invalid', 'Error');
+    setProgress(0);
+    refs.summary.textContent = error.message || String(error);
     log('error', error.message || String(error));
   } finally {
-    updateUi();
+    updateAction();
   }
 }
 
-function autoDirectionFor(edition) {
-  const desired = edition === 'java' ? 'java-to-bedrock' : 'bedrock-to-java';
-  if (state.direction === desired) return;
-  state.direction = desired;
-  refs.directionButtons.forEach(b => b.classList.toggle('active', b.dataset.direction === desired));
-  log('info', `Direction automatically switched to ${edition === 'java' ? 'Java → Bedrock' : 'Bedrock → Java'} for the verified source.`);
-}
-
 async function startConversion() {
-  if (state.busy) return;
-  const source = state.direction === 'java-to-bedrock' ? 'java' : 'bedrock';
-  const inspection = state[source].inspection;
-  if (!inspection?.valid) return;
+  if (state.busy || !state.source.inspection?.valid) return;
 
   state.busy = true;
+  clearOutput();
   refs.convertBtn.classList.add('busy');
   refs.convertBtn.disabled = true;
   refs.convertBtn.querySelector('span:first-child').textContent = 'Converting…';
-  refs.progressWrap[source].hidden = false;
-  refs.progressLabel[source].textContent = 'Converting textures…';
-  setProgress(source, 0);
+  refs.progressWrap.hidden = false;
+  refs.progressLabel.textContent = 'Converting textures…';
+  setProgress(0);
 
   try {
     const result = await convertPack({
-      inspection,
+      inspection: state.source.inspection,
       direction: state.direction,
       experimentalUi: refs.experimentalUi.checked,
       includeReport: refs.includeReport.checked,
       onLog: log,
-      onProgress: pct => setProgress(source, pct),
+      onProgress: setProgress,
     });
-    downloadBlob(result.blob, result.fileName);
-    refs.progressLabel[source].textContent = 'Conversion complete';
-    refs.actionSubtitle.textContent = `${result.stats.mapped + result.stats.passthrough} files written · ${result.stats.skipped} skipped · download started.`;
-    log('success', `Download started: ${result.fileName}`);
+
+    state.latestResult = result;
+    refs.progressLabel.textContent = 'Conversion complete';
+    await preparePreviewJob(result);
+    renderOutput(result);
+    refs.output.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } catch (error) {
-    refs.progressLabel[source].textContent = 'Conversion failed';
+    refs.progressLabel.textContent = 'Conversion failed';
     log('error', error.message || String(error));
   } finally {
     state.busy = false;
     refs.convertBtn.classList.remove('busy');
     refs.convertBtn.querySelector('span:first-child').textContent = 'Convert Pack';
-    updateUi();
+    updateAction();
   }
 }
 
-function updateUi() {
-  const source = state.direction === 'java-to-bedrock' ? 'java' : 'bedrock';
-  const target = source === 'java' ? 'bedrock' : 'java';
-  refs.cards.java.classList.toggle('source-active', source === 'java');
-  refs.cards.bedrock.classList.toggle('source-active', source === 'bedrock');
-  refs.cards.java.classList.toggle('target-dim', target === 'java');
-  refs.cards.bedrock.classList.toggle('target-dim', target === 'bedrock');
+async function preparePreviewJob(result) {
+  const jobId = makeJobId();
+  const job = {
+    id: jobId,
+    createdAt: Date.now(),
+    direction: state.direction,
+    sourceName: state.source.file?.name || 'Source resource pack',
+    outputFileName: result.fileName,
+    outputBlob: result.blob,
+    stats: result.stats,
+    previewEntries: result.previewEntries,
+    previewTruncated: result.previewTruncated,
+    previewLimit: result.previewLimit,
+  };
 
-  const title = state.direction === 'java-to-bedrock' ? 'Java → Bedrock' : 'Bedrock → Java';
-  refs.actionTitle.textContent = title;
-  const valid = !!state[source].inspection?.valid;
+  try {
+    await saveConversionJob(job);
+    state.previewJobId = jobId;
+    refs.viewOutput.disabled = false;
+    log('success', 'Visual conversion preview saved locally on this device.');
+  } catch (error) {
+    state.previewJobId = null;
+    refs.viewOutput.disabled = true;
+    log('warn', `Pack converted, but the browser could not save the visual preview: ${error.message || error}`);
+  }
+}
+
+function renderOutput(result) {
+  const converted = result.stats.mapped + result.stats.passthrough;
+
+  refs.output.hidden = false;
+  refs.outputFileName.textContent = result.fileName;
+  refs.outputFileMeta.textContent =
+    `${converted.toLocaleString()} files written · ${formatBytes(result.blob.size)} output`;
+  refs.outputFileIcon.textContent = state.direction === 'java-to-bedrock' ? 'MCPACK' : 'ZIP';
+  refs.outputMapped.textContent = result.stats.mapped.toLocaleString();
+  refs.outputPassthrough.textContent = result.stats.passthrough.toLocaleString();
+  refs.outputSkipped.textContent = result.stats.skipped.toLocaleString();
+  refs.outputPreviewable.textContent = result.previewEntries.length.toLocaleString();
+
+  refs.outputSummary.textContent = result.previewTruncated
+    ? `Conversion finished. Visual comparison prepared for the first ${result.previewLimit.toLocaleString()} previewable PNG entries.`
+    : 'Conversion finished. Download the archive or open the visual comparison viewer.';
+
+  refs.actionSubtitle.textContent =
+    `${converted.toLocaleString()} files written · ${result.stats.skipped.toLocaleString()} skipped · result ready below.`;
+}
+
+function downloadLatestOutput() {
+  const result = state.latestResult;
+  if (!result?.blob) return;
+
+  const url = URL.createObjectURL(result.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = result.fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  log('success', `Download started: ${result.fileName}`);
+}
+
+function configureDirection() {
+  const javaToBedrock = state.direction === 'java-to-bedrock';
+  const source = javaToBedrock ? 'java' : 'bedrock';
+
+  refs.sourceIcon.className = `edition-icon ${javaToBedrock ? 'java-icon' : 'bedrock-icon'}`;
+  refs.sourceIcon.textContent = javaToBedrock ? 'J' : 'B';
+  refs.sourceTitle.textContent = javaToBedrock ? 'Java Edition' : 'Bedrock Edition';
+  refs.sourceCopy.textContent = javaToBedrock
+    ? 'Upload a Java 26.2.x resource pack (.zip)'
+    : 'Upload a Bedrock 1.26.50 resource pack (.mcpack or .zip)';
+
+  refs.sourceVersion.innerHTML = javaToBedrock
+    ? '<option value="26.2.x">Java 26.2.x</option>'
+    : '<option value="1.26.50">Bedrock 1.26.50</option>';
+
+  refs.targetVersionLabel.textContent = javaToBedrock ? 'Bedrock 1.26.50' : 'Java 26.2.x';
+  refs.input.accept = javaToBedrock ? '.zip,application/zip' : '.zip,.mcpack,application/zip';
+  refs.dropzoneTitle.textContent = javaToBedrock ? 'Drop Java pack here' : 'Drop Bedrock pack here';
+  refs.dropzoneSubtitle.textContent = javaToBedrock
+    ? 'or click to choose a .zip'
+    : 'or click to choose .mcpack / .zip';
+
+  refs.routeSourceIcon.className = `route-icon ${javaToBedrock ? 'java-icon' : 'bedrock-icon'}`;
+  refs.routeTargetIcon.className = `route-icon ${javaToBedrock ? 'bedrock-icon' : 'java-icon'}`;
+  refs.routeSourceIcon.textContent = javaToBedrock ? 'J' : 'B';
+  refs.routeTargetIcon.textContent = javaToBedrock ? 'B' : 'J';
+  refs.routeSourceName.textContent = javaToBedrock ? 'Java 26.2.x' : 'Bedrock 1.26.50';
+  refs.routeTargetName.textContent = javaToBedrock ? 'Bedrock 1.26.50' : 'Java 26.2.x';
+
+  refs.actionTitle.textContent = directionLabel();
+  refs.summary.innerHTML = javaToBedrock
+    ? 'Upload a Java pack to scan <code>pack.mcmeta</code> and <code>assets/minecraft/</code>.'
+    : 'Upload a Bedrock pack to scan <code>manifest.json</code> and <code>textures/</code>.';
+
+  setStatus('idle', 'Waiting');
+  updateAction();
+}
+
+function resetSource() {
+  state.source = { file: null, buffer: null, inspection: null };
+  refs.input.value = '';
+  refs.fileName.textContent = 'No file selected';
+  refs.progressWrap.hidden = true;
+  setProgress(0);
+  clearOutput();
+}
+
+function clearOutput() {
+  state.latestResult = null;
+  state.previewJobId = null;
+  refs.output.hidden = true;
+  refs.viewOutput.disabled = false;
+}
+
+function updateAction() {
+  const valid = !!state.source.inspection?.valid;
   if (!state.busy) {
     refs.convertBtn.disabled = !valid;
     refs.actionSubtitle.textContent = valid
-      ? `Verified ${capitalize(source)} source ready. The target pack will be built locally in your browser.`
-      : `Add a valid ${capitalize(source)} ${source === 'java' ? '26.2.x' : '1.26.50'} pack to begin.`;
+      ? `Verified ${capitalize(sourceEdition())} source ready. Conversion will run locally in this browser.`
+      : `Add a valid ${capitalize(sourceEdition())} ${sourceEdition() === 'java' ? '26.2.x' : '1.26.50'} pack to begin.`;
   }
 }
 
-function setStatus(edition, kind, text) {
-  refs.status[edition].className = `status-badge ${kind}`;
-  refs.status[edition].textContent = text;
+function sourceEdition() {
+  return state.direction === 'java-to-bedrock' ? 'java' : 'bedrock';
 }
-function setProgress(edition, pct) {
+
+function directionLabel() {
+  return state.direction === 'java-to-bedrock' ? 'Java → Bedrock' : 'Bedrock → Java';
+}
+
+function setStatus(kind, text) {
+  refs.sourceStatus.className = `status-badge ${kind}`;
+  refs.sourceStatus.textContent = text;
+}
+
+function setProgress(pct) {
   const value = Math.max(0, Math.min(100, Math.round(pct)));
-  refs.progress[edition].style.width = `${value}%`;
-  refs.progressText[edition].textContent = `${value}%`;
+  refs.progress.style.width = `${value}%`;
+  refs.progressText.textContent = `${value}%`;
 }
+
 function log(level, message) {
   const line = document.createElement('div');
   line.className = `log-line ${level}`;
   const time = new Date().toLocaleTimeString([], { hour12: false });
-  const levelLabel = { info: 'INFO', success: 'OK', warn: 'WARN', error: 'ERROR', muted: 'NOTE' }[level] || 'INFO';
-  line.innerHTML = `<span class="log-time"></span><span class="log-level"></span><span></span>`;
+  const levelLabel = {
+    info: 'INFO',
+    success: 'OK',
+    warn: 'WARN',
+    error: 'ERROR',
+    muted: 'NOTE',
+  }[level] || 'INFO';
+
+  line.innerHTML = '<span class="log-time"></span><span class="log-level"></span><span></span>';
   line.children[0].textContent = time;
   line.children[1].textContent = levelLabel;
   line.children[2].textContent = message;
   refs.console.appendChild(line);
   refs.console.scrollTop = refs.console.scrollHeight;
 }
-function downloadBlob(blob, fileName) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+function capitalize(value) {
+  return value[0].toUpperCase() + value.slice(1);
 }
-function capitalize(value) { return value[0].toUpperCase() + value.slice(1); }
