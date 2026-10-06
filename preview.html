@@ -35,9 +35,12 @@
 
     <section id="preview-missing" class="preview-state-card" hidden>
       <span class="empty-icon">!</span>
-      <h1>Conversion preview not found</h1>
-      <p>This preview may have been cleared by the browser, opened on another device, or replaced by newer conversions.</p>
-      <a class="primary-btn inline-btn" href="./">Start a new conversion →</a>
+      <h1 id="preview-error-title">Conversion preview not found</h1>
+      <p id="preview-error-detail">This preview may have been cleared by the browser, opened on another device, or replaced by newer conversions.</p>
+      <div class="preview-state-actions">
+        <button id="preview-retry" class="secondary-btn" type="button">Retry Preview</button>
+        <a class="primary-btn inline-btn" href="./">Back to Converter →</a>
+      </div>
     </section>
 
     <div id="preview-content" hidden>
@@ -92,6 +95,23 @@
     </div>
   </main>
 
-  <script type="module" src="./preview.js"></script>
+  <script>
+    window.__dazenPreviewBooted = false;
+    window.__dazenPreviewReady = false;
+    setTimeout(() => {
+      if (window.__dazenPreviewBooted) return;
+      const loading = document.getElementById('preview-loading');
+      const missing = document.getElementById('preview-missing');
+      const title = document.getElementById('preview-error-title');
+      const detail = document.getElementById('preview-error-detail');
+      if (loading) loading.hidden = true;
+      if (missing) missing.hidden = false;
+      if (title) title.textContent = 'Preview script did not start';
+      if (detail) {
+        detail.textContent = 'The preview JavaScript did not load or was blocked. Hard-refresh the page. If this keeps happening, confirm preview.js and preview-storage.js are deployed with the site.';
+      }
+    }, 7000);
+  </script>
+  <script type="module" src="./preview.js?v=20261007-3"></script>
 </body>
 </html>
