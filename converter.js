@@ -1,4 +1,7 @@
 import { JAVA_TO_BEDROCK_RENAMES, BEDROCK_TO_JAVA_RENAMES } from './mappings.js';
+import { detectJavaPluginBundle, actualPathFor } from './plugin-adapters.js';
+import { convertJavaCustomItems, convertBedrockCustomItems } from './custom-items.js';
+import { convertJavaFontsToBedrock, convertBedrockFontsToJava } from './font-converter.js';
 
 const LIMITS = {
   maxArchiveBytes: 512 * 1024 * 1024,
@@ -42,12 +45,33 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
 
   const javaRoot = findRootFor(rawNames, 'pack.mcmeta');
   const bedrockRoot = findRootFor(rawNames, 'manifest.json');
-  const detectedEdition = javaRoot !== null ? 'java' : bedrockRoot !== null ? 'bedrock' : null;
-  const rootPrefix = detectedEdition === 'java' ? javaRoot : detectedEdition === 'bedrock' ? bedrockRoot : '';
+  let detectedEdition = javaRoot !== null ? 'java' : bedrockRoot !== null ? 'bedrock' : null;
+  let rootPrefix = detectedEdition === 'java' ? javaRoot : detectedEdition === 'bedrock' ? bedrockRoot : '';
+  let adapter = null;
+  let pathMap = null;
+  let names = null;
+
+  // A vendor/source bundle from ItemsAdder, Nexo or Oraxen may not contain a
+  // root pack.mcmeta yet. Normalize its resource files into a virtual Java
+  // assets/... tree so the normal converter can process it.
+  if (!detectedEdition && expectedEdition === 'java') {
+    adapter = await detectJavaPluginBundle(zip, rawNames);
+    if (adapter?.names?.length) {
+      detectedEdition = 'java';
+      rootPrefix = '';
+      pathMap = adapter.pathMap;
+      names = adapter.names;
+    }
+  }
 
   if (!detectedEdition) {
-    return invalidInspection(zip, expectedEdition, 'Could not find pack.mcmeta or manifest.json at the root (or inside one wrapper folder).');
+    return invalidInspection(
+      zip,
+      expectedEdition,
+      'Could not find a standard pack root or a supported ItemsAdder/Nexo/Oraxen source-pack structure.'
+    );
   }
+
   if (detectedEdition !== expectedEdition) {
     return invalidInspection(
       zip,
@@ -58,29 +82,56 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     );
   }
 
-  const names = normalizedNames(rawNames, rootPrefix);
-  const warnings = [];
+  names ||= normalizedNames(rawNames, rootPrefix);
+  const warnings = [...(adapter?.warnings || [])];
   let metadata = null;
 
   if (expectedEdition === 'java') {
-    if (!names.some(n => n.startsWith('assets/minecraft/'))) {
-      return invalidInspection(zip, expectedEdition, 'pack.mcmeta was found, but assets/minecraft/ is missing.', detectedEdition, rootPrefix);
-    }
-    try {
-      metadata = JSON.parse(await zip.file(rootPrefix + 'pack.mcmeta').async('string'));
-    } catch {
-      return invalidInspection(zip, expectedEdition, 'pack.mcmeta is not valid JSON.', detectedEdition, rootPrefix);
+    if (!names.some(n => n.startsWith('assets/'))) {
+      return invalidInspection(
+        zip,
+        expectedEdition,
+        'No Java assets were found in the selected pack or plugin source bundle.',
+        detectedEdition,
+        rootPrefix
+      );
     }
 
-    const min = metadata?.pack?.min_format;
-    if (Array.isArray(min) && Number(min[0]) !== SUPPORTED.java.minFormat[0]) {
-      warnings.push(`pack.mcmeta reports min_format ${JSON.stringify(min)}; this converter is tuned for Java ${SUPPORTED.java.id}.`);
+    if (adapter) {
+      metadata = {
+        pack: {
+          description: `Detected ${adapter.plugins.join(', ')} source bundle`,
+        },
+      };
+      warnings.push(
+        `Source-bundle mode enabled for ${adapter.plugins.join(', ')}; generated server-side IDs that are absent from YAML will be marked unresolved instead of guessed.`
+      );
+    } else {
+      try {
+        metadata = JSON.parse(await zip.file(rootPrefix + 'pack.mcmeta').async('string'));
+      } catch {
+        return invalidInspection(zip, expectedEdition, 'pack.mcmeta is not valid JSON.', detectedEdition, rootPrefix);
+      }
+
+      const min = metadata?.pack?.min_format;
+      if (Array.isArray(min) && Number(min[0]) !== SUPPORTED.java.minFormat[0]) {
+        warnings.push(
+          `pack.mcmeta reports min_format ${JSON.stringify(min)}; this converter is tuned for Java ${SUPPORTED.java.id}.`
+        );
+      }
+      if (!metadata?.pack) warnings.push('pack.mcmeta does not contain a standard pack object.');
     }
-    if (!metadata?.pack) warnings.push('pack.mcmeta does not contain a standard pack object.');
   } else {
     if (!names.some(n => n.startsWith('textures/'))) {
-      return invalidInspection(zip, expectedEdition, 'manifest.json was found, but textures/ is missing.', detectedEdition, rootPrefix);
+      return invalidInspection(
+        zip,
+        expectedEdition,
+        'manifest.json was found, but textures/ is missing.',
+        detectedEdition,
+        rootPrefix
+      );
     }
+
     try {
       metadata = JSON.parse(await zip.file(rootPrefix + 'manifest.json').async('string'));
     } catch {
@@ -90,12 +141,15 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     if (metadata?.format_version !== 2) {
       warnings.push(`manifest.json format_version is ${metadata?.format_version ?? 'missing'}; version 2 is expected.`);
     }
-    const hasResourcesModule = Array.isArray(metadata?.modules) && metadata.modules.some(m => m?.type === 'resources');
+    const hasResourcesModule =
+      Array.isArray(metadata?.modules) && metadata.modules.some(m => m?.type === 'resources');
     if (!hasResourcesModule) warnings.push('No resources module was found in manifest.json.');
 
     const min = metadata?.header?.min_engine_version;
     if (Array.isArray(min) && min.join('.') !== SUPPORTED.bedrock.minEngineVersion.join('.')) {
-      warnings.push(`Pack targets Bedrock ${min.join('.')}; mapping data is tuned for ${SUPPORTED.bedrock.id}.`);
+      warnings.push(
+        `Pack targets Bedrock ${min.join('.')}; mapping data is tuned for ${SUPPORTED.bedrock.id}.`
+      );
     }
   }
 
@@ -112,7 +166,16 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     metadata,
     names,
     warnings,
-    counts: { files: names.length, png: pngCount, tga: tgaCount, mcmeta: metaCount },
+    adapter,
+    pathMap,
+    counts: {
+      files: names.length,
+      png: pngCount,
+      tga: tgaCount,
+      mcmeta: metaCount,
+      customItems: adapter?.itemHints?.length || 0,
+      glyphHints: adapter?.glyphHints?.length || 0,
+    },
   };
 }
 
@@ -133,51 +196,74 @@ export async function convertPack({
 
   const output = new window.JSZip();
   const names = inspection.names;
-  const stats = { discovered: names.length, mapped: 0, passthrough: 0, skipped: 0, collisions: 0 };
+  const stats = {
+    discovered: names.length,
+    mapped: 0,
+    passthrough: 0,
+    skipped: 0,
+    collisions: 0,
+    customItems: 0,
+    fontGlyphs: 0,
+  };
   const skipped = [];
   const mappings = [];
   const occupied = new Set();
-  const previewEntries = [];
+  const genericPreviewEntries = [];
   let previewTruncated = false;
-
-  const root = inspection.rootPrefix;
-  const input = inspection.zip;
   const total = Math.max(names.length, 1);
 
-  onLog('info', `Starting ${direction === 'java-to-bedrock' ? 'Java → Bedrock' : 'Bedrock → Java'} conversion.`);
-  onLog('info', `Source contains ${names.length.toLocaleString()} files (${inspection.counts.png.toLocaleString()} PNG textures).`);
+  onLog(
+    'info',
+    `Starting ${direction === 'java-to-bedrock' ? 'Java → Bedrock' : 'Bedrock → Java'} conversion.`
+  );
+  onLog(
+    'info',
+    `Source contains ${names.length.toLocaleString()} files (${inspection.counts.png.toLocaleString()} PNG textures).`
+  );
+
+  if (inspection.adapter) {
+    onLog(
+      'info',
+      `Plugin source architecture detected: ${inspection.adapter.plugins.join(', ')} · ${inspection.adapter.itemHints.length} item config(s) · ${inspection.adapter.glyphHints.length} font image/glyph hint(s).`
+    );
+  }
 
   for (let i = 0; i < names.length; i++) {
     const sourcePath = names[i];
-    const sourceFile = input.file(root + sourcePath);
+    const sourceFile = inspection.zip.file(actualPathFor(inspection, sourcePath));
     if (!sourceFile) continue;
 
-    const decision = direction === 'java-to-bedrock'
-      ? mapJavaToBedrock(sourcePath, experimentalUi)
-      : mapBedrockToJava(sourcePath, experimentalUi);
+    const decision =
+      direction === 'java-to-bedrock'
+        ? mapJavaToBedrock(sourcePath, experimentalUi)
+        : mapBedrockToJava(sourcePath, experimentalUi);
 
     const isPng = sourcePath.toLowerCase().endsWith('.png');
 
     if (!decision?.target) {
       stats.skipped++;
-      if (skipped.length < 200) skipped.push(`${sourcePath} — ${decision?.reason || 'unsupported'}`);
+      if (skipped.length < 200) {
+        skipped.push(`${sourcePath} — ${decision?.reason || 'unsupported'}`);
+      }
 
       if (isPng) {
-        if (previewEntries.length < LIMITS.previewImages) {
+        if (genericPreviewEntries.length < LIMITS.previewImages) {
           const bytes = await sourceFile.async('uint8array');
-          previewEntries.push(makePreviewEntry({
-            sourcePath,
-            targetPath: null,
-            status: 'skipped',
-            reason: decision?.reason || 'Unsupported',
-            bytes,
-          }));
+          genericPreviewEntries.push(
+            makePreviewEntry({
+              sourcePath,
+              targetPath: null,
+              status: 'skipped',
+              reason: decision?.reason || 'Unsupported',
+              bytes,
+            })
+          );
         } else {
           previewTruncated = true;
         }
       }
 
-      if (i % 100 === 0) onProgress(Math.round(((i + 1) / total) * 82));
+      if (i % 100 === 0) onProgress(Math.round(((i + 1) / total) * 65));
       continue;
     }
 
@@ -191,7 +277,9 @@ export async function convertPack({
     if (occupied.has(target)) {
       stats.collisions++;
       stats.skipped++;
-      if (skipped.length < 200) skipped.push(`${sourcePath} — target collision at ${target}`);
+      if (skipped.length < 200) {
+        skipped.push(`${sourcePath} — target collision at ${target}`);
+      }
       continue;
     }
 
@@ -203,48 +291,91 @@ export async function convertPack({
     else stats.passthrough++;
 
     if (mappings.length < 250) {
-      mappings.push(`${sourcePath} -> ${target}${decision.mapped ? ' [mapped]' : ''}`);
+      mappings.push(
+        `${sourcePath} -> ${target}${decision.mapped ? ' [mapped]' : ''}`
+      );
     }
 
     if (isPng) {
-      if (previewEntries.length < LIMITS.previewImages) {
-        previewEntries.push(makePreviewEntry({
-          sourcePath,
-          targetPath: target,
-          status: decision.mapped ? 'mapped' : 'passthrough',
-          reason: '',
-          bytes,
-        }));
+      if (genericPreviewEntries.length < LIMITS.previewImages) {
+        genericPreviewEntries.push(
+          makePreviewEntry({
+            sourcePath,
+            targetPath: target,
+            status: decision.mapped ? 'mapped' : 'passthrough',
+            reason: '',
+            bytes,
+          })
+        );
       } else {
         previewTruncated = true;
       }
     }
 
-    if (i % 80 === 0) onProgress(Math.round(((i + 1) / total) * 82));
+    if (i % 80 === 0) onProgress(Math.round(((i + 1) / total) * 65));
   }
 
+  onProgress(68);
+  let customItemsResult;
+  let fontsResult;
+
   if (direction === 'java-to-bedrock') {
+    customItemsResult = await convertJavaCustomItems({ inspection, output, onLog });
+    onProgress(74);
+    fontsResult = await convertJavaFontsToBedrock({ inspection, output, onLog });
     output.file('manifest.json', JSON.stringify(createBedrockManifest(), null, 2));
   } else {
+    customItemsResult = await convertBedrockCustomItems({ inspection, output, onLog });
+    onProgress(74);
+    fontsResult = await convertBedrockFontsToJava({ inspection, output, onLog });
     output.file('pack.mcmeta', JSON.stringify(createJavaMcmeta(), null, 2));
   }
+
+  stats.customItems = Number(customItemsResult?.converted || 0);
+  stats.fontGlyphs = Number(fontsResult?.converted || 0);
+
+  const enhancedPreview = [
+    ...(customItemsResult?.previewEntries || []),
+    ...(fontsResult?.previewEntries || []),
+  ];
+  const enhancedSourcePaths = new Set(
+    enhancedPreview.map(entry => entry.sourcePath).filter(Boolean)
+  );
+  const previewEntries = [
+    ...enhancedPreview,
+    ...genericPreviewEntries.filter(
+      entry => !enhancedSourcePaths.has(entry.sourcePath)
+    ),
+  ];
 
   if (includeReport) {
     output.file(
       'dazen-conversion-report.txt',
-      createReport({ direction, stats, skipped, mappings, warnings: inspection.warnings })
+      createReport({
+        direction,
+        stats,
+        skipped,
+        mappings,
+        warnings: inspection.warnings,
+      })
     );
   }
 
-  onProgress(86);
+  onProgress(80);
   onLog(
     'info',
-    `Packaging output: ${stats.mapped} version-mapped textures/files, ${stats.passthrough} compatible passthrough files.`
+    `Packaging output: ${stats.mapped} version-mapped files, ${stats.passthrough} compatible passthrough files, ${stats.customItems} custom item conversions, ${stats.fontGlyphs} font glyph conversions.`
   );
+
   if (stats.skipped) {
-    onLog('warn', `${stats.skipped} files were skipped because this release does not have a safe target mapping.`);
+    onLog(
+      'warn',
+      `${stats.skipped} generic files were skipped where no safe target mapping exists. Custom-item/font modules may still have handled some of those resources separately.`
+    );
   }
-  if (stats.collisions) onLog('warn', `${stats.collisions} target-path collisions were prevented.`);
+  if (stats.collisions) {
+    onLog('warn', `${stats.collisions} target-path collisions were prevented.`);
+  }
 
   const blob = await output.generateAsync(
     {
@@ -253,19 +384,20 @@ export async function convertPack({
       compressionOptions: { level: 6 },
       streamFiles: true,
     },
-    meta => onProgress(86 + Math.round(meta.percent * 0.14))
+    meta => onProgress(80 + Math.round(meta.percent * 0.20))
   );
 
   onProgress(100);
 
   const extension = direction === 'java-to-bedrock' ? 'mcpack' : 'zip';
-  const editionLabel = direction === 'java-to-bedrock' ? 'bedrock-1.26.50' : 'java-26.2.x';
+  const editionLabel =
+    direction === 'java-to-bedrock' ? 'bedrock-1.26.50' : 'java-26.2.x';
   const fileName = `dazen-converted-${editionLabel}.${extension}`;
 
   onLog('success', `Conversion complete. Output size: ${formatBytes(blob.size)}.`);
   onLog(
     'info',
-    `Visual comparison prepared for ${previewEntries.length.toLocaleString()} PNG textures${previewTruncated ? ` (preview capped at ${LIMITS.previewImages})` : ''}.`
+    `Visual comparison prepared for ${previewEntries.length.toLocaleString()} entries${previewTruncated ? ` (generic texture preview capped at ${LIMITS.previewImages})` : ''}.`
   );
 
   return {
@@ -276,6 +408,18 @@ export async function convertPack({
     previewEntries,
     previewTruncated,
     previewLimit: LIMITS.previewImages,
+    artifacts: {
+      geyserMappingsBlob: customItemsResult?.mappingsBlob || null,
+      geyserMappingsFileName:
+        customItemsResult?.mappingsFileName || 'dazen-geyser-custom-mappings.json',
+      unresolvedCustomItems: customItemsResult?.unresolved || [],
+      threeDFallbacks: Number(customItemsResult?.threeDFallbacks || 0),
+      customItemsConverted: stats.customItems,
+      fontsConverted: stats.fontGlyphs,
+      fontPages: Number(fontsResult?.pages || 0),
+      unresolvedFonts: Number(fontsResult?.unresolved || 0),
+      adapterPlugins: inspection.adapter?.plugins || [],
+    },
   };
 }
 
@@ -401,14 +545,21 @@ function mapBedrockToJava(path, experimentalUi) {
 }
 
 function makePreviewEntry({ sourcePath, targetPath, status, reason, bytes }) {
+  const blob = new Blob([bytes], { type: 'image/png' });
   return {
+    id: `texture:${sourcePath}->${targetPath || 'skipped'}`,
     name: readableTextureName(sourcePath),
     category: classifyTexture(sourcePath, targetPath),
     sourcePath,
     targetPath,
     status,
     reason,
-    imageBlob: new Blob([bytes], { type: 'image/png' }),
+    sourceBlob: blob,
+    targetBlob: targetPath ? blob : null,
+    editable: !!targetPath,
+    editSpec: targetPath
+      ? { type: 'direct-image', targetPath }
+      : null,
   };
 }
 
