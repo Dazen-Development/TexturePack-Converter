@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b0d12" />
+  <meta name="description" content="Client-side Minecraft Java ↔ Bedrock texture pack converter by Dazen Development." />
+  <title>Dazen Texture Pack Converter</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+
+  <header class="site-header shell">
+    <a class="brand" href="./" aria-label="Dazen Texture Pack Converter home">
+      <span class="brand-mark">D</span>
+      <span>
+        <strong>Dazen Development</strong>
+        <small>Texture Pack Converter</small>
+      </span>
+    </a>
+    <div class="header-actions">
+      <span class="privacy-pill">Runs locally in your browser</span>
+      <a class="ghost-link" href="https://github.com/Dazen-Development/TexturePack-Converter" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </div>
+  </header>
+
+  <main class="shell main-content">
+    <section class="hero">
+      <div class="eyebrow">Minecraft resource pack utility</div>
+      <h1>Convert Java ↔ Bedrock<br><span>without uploading your pack.</span></h1>
+      <p class="hero-copy">Drop a supported resource pack below. The browser scans its structure first, maps compatible texture paths, builds the target pack, and gives you a downloadable archive.</p>
+      <div class="support-badges" aria-label="Current version support">
+        <span>Java 26.2.x</span>
+        <span class="swap-dot">⇄</span>
+        <span>Bedrock 1.26.50</span>
+      </div>
+    </section>
+
+    <section class="workspace" aria-labelledby="workspace-title">
+      <div class="workspace-head">
+        <div>
+          <p class="section-kicker">Converter workspace</p>
+          <h2 id="workspace-title">Choose a direction, then add your source pack.</h2>
+        </div>
+        <div class="direction-toggle" role="group" aria-label="Conversion direction">
+          <button class="direction-btn active" data-direction="java-to-bedrock" type="button">Java → Bedrock</button>
+          <button class="direction-btn" data-direction="bedrock-to-java" type="button">Bedrock → Java</button>
+        </div>
+      </div>
+
+      <div class="pack-grid">
+        <article class="pack-card" data-side="java">
+          <div class="pack-card-top">
+            <div class="edition-icon java-icon">J</div>
+            <div>
+              <h3>Java Edition</h3>
+              <p>Resource pack (.zip)</p>
+            </div>
+            <span class="status-badge idle" id="java-status">Waiting</span>
+          </div>
+
+          <label class="field-label" for="java-version">Architecture</label>
+          <select id="java-version" class="version-select">
+            <option value="26.2.x">Java 26.2.x</option>
+          </select>
+
+          <div class="dropzone" id="java-dropzone" tabindex="0" role="button" aria-label="Choose or drop Java resource pack">
+            <input id="java-file" type="file" accept=".zip,application/zip" hidden />
+            <div class="drop-icon">⇧</div>
+            <strong>Drop Java pack here</strong>
+            <span>or click to choose a .zip</span>
+            <small id="java-file-name">No file selected</small>
+          </div>
+
+          <div class="upload-progress" id="java-progress-wrap" hidden>
+            <div class="progress-meta"><span id="java-progress-label">Reading file…</span><strong id="java-progress-text">0%</strong></div>
+            <div class="progress-track"><div id="java-progress" class="progress-fill"></div></div>
+          </div>
+
+          <div class="scan-summary" id="java-summary">Upload a pack to scan <code>pack.mcmeta</code> and <code>assets/minecraft/</code>.</div>
+        </article>
+
+        <div class="transfer-column" aria-hidden="true">
+          <div class="transfer-line"></div>
+          <div class="transfer-orb">⇄</div>
+          <div class="transfer-line"></div>
+        </div>
+
+        <article class="pack-card" data-side="bedrock">
+          <div class="pack-card-top">
+            <div class="edition-icon bedrock-icon">B</div>
+            <div>
+              <h3>Bedrock Edition</h3>
+              <p>Resource pack (.mcpack or .zip)</p>
+            </div>
+            <span class="status-badge idle" id="bedrock-status">Waiting</span>
+          </div>
+
+          <label class="field-label" for="bedrock-version">Architecture</label>
+          <select id="bedrock-version" class="version-select">
+            <option value="1.26.50">Bedrock 1.26.50</option>
+          </select>
+
+          <div class="dropzone" id="bedrock-dropzone" tabindex="0" role="button" aria-label="Choose or drop Bedrock resource pack">
+            <input id="bedrock-file" type="file" accept=".zip,.mcpack,application/zip" hidden />
+            <div class="drop-icon">⇧</div>
+            <strong>Drop Bedrock pack here</strong>
+            <span>or click to choose .mcpack / .zip</span>
+            <small id="bedrock-file-name">No file selected</small>
+          </div>
+
+          <div class="upload-progress" id="bedrock-progress-wrap" hidden>
+            <div class="progress-meta"><span id="bedrock-progress-label">Reading file…</span><strong id="bedrock-progress-text">0%</strong></div>
+            <div class="progress-track"><div id="bedrock-progress" class="progress-fill"></div></div>
+          </div>
+
+          <div class="scan-summary" id="bedrock-summary">Upload a pack to scan <code>manifest.json</code> and <code>textures/</code>.</div>
+        </article>
+      </div>
+
+      <div class="options-row">
+        <label class="check-option">
+          <input id="experimental-ui" type="checkbox" />
+          <span><strong>Experimental GUI passthrough</strong><small>Copies same-path GUI PNGs when possible. Edition layouts can differ significantly.</small></span>
+        </label>
+        <label class="check-option">
+          <input id="include-report" type="checkbox" checked />
+          <span><strong>Include conversion report</strong><small>Adds <code>dazen-conversion-report.txt</code> to the output archive.</small></span>
+        </label>
+      </div>
+
+      <div class="action-row">
+        <div class="action-copy">
+          <strong id="action-title">Java → Bedrock</strong>
+          <span id="action-subtitle">Add a valid Java 26.2.x pack to begin.</span>
+        </div>
+        <button id="convert-btn" class="primary-btn" type="button" disabled>
+          <span>Convert Pack</span>
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="console-card" aria-labelledby="console-title">
+      <div class="console-head">
+        <div>
+          <p class="section-kicker">Process output</p>
+          <h2 id="console-title">Conversion Console</h2>
+        </div>
+        <button id="clear-console" class="console-clear" type="button">Clear</button>
+      </div>
+      <div id="console" class="console" role="log" aria-live="polite" aria-relevant="additions">
+        <div class="log-line info"><span class="log-time">--:--:--</span><span class="log-level">INFO</span><span>Dazen Texture Pack Converter ready.</span></div>
+        <div class="log-line muted"><span class="log-time">--:--:--</span><span class="log-level">NOTE</span><span>Your files stay on this device; GitHub Pages only serves the app files.</span></div>
+      </div>
+    </section>
+
+    <section class="notes-grid">
+      <article class="note-card">
+        <span class="note-index">01</span>
+        <h3>Validated before conversion</h3>
+        <p>Archives are scanned for the expected root metadata and resource-pack folders. Wrapped single-folder ZIPs are detected automatically.</p>
+      </article>
+      <article class="note-card">
+        <span class="note-index">02</span>
+        <h3>Version-aware path mapping</h3>
+        <p>This release includes rename correspondences derived from the supplied Java 26.2.x and Bedrock 1.26.50 vanilla references.</p>
+      </article>
+      <article class="note-card">
+        <span class="note-index">03</span>
+        <h3>Transparent limitations</h3>
+        <p>Classic PNG textures are the focus. Models, shaders, OptiFine/CIT, fonts, animation metadata and complex GUI layouts may require manual work.</p>
+      </article>
+    </section>
+  </main>
+
+  <footer class="site-footer shell">
+    <div class="credit-block">
+      <span class="brand-mark small">D</span>
+      <div>
+        <strong>Dazen Development</strong>
+        <span>Open-source Minecraft tooling</span>
+      </div>
+    </div>
+    <div class="developer-credit">
+      <img src="https://avatars.githubusercontent.com/u/88937856?v=4" alt="Reynier Apurillo GitHub avatar" width="34" height="34" />
+      <div>
+        <span>Developed by</span>
+        <a href="https://github.com/Dazeeen" target="_blank" rel="noreferrer">Reynier Apurillo · @Dazeeen (Kenzooo)</a>
+      </div>
+    </div>
+    <p class="legal">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
