@@ -3,6 +3,7 @@ import { JAVA_TO_BEDROCK_RENAMES, BEDROCK_TO_JAVA_RENAMES } from './mappings.js'
 const LIMITS = {
   maxArchiveBytes: 512 * 1024 * 1024,
   maxEntries: 40000,
+  previewImages: 600,
 };
 
 const SUPPORTED = {
@@ -33,7 +34,10 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
   if (!window.JSZip) throw new Error('ZIP engine did not load. Check your internet connection and reload the page.');
   const zip = await window.JSZip.loadAsync(arrayBuffer, { createFolders: true });
   const rawNames = Object.keys(zip.files).filter(name => !zip.files[name].dir);
-  if (rawNames.length > LIMITS.maxEntries) throw new Error(`Archive contains ${rawNames.length.toLocaleString()} files; the safety limit is ${LIMITS.maxEntries.toLocaleString()}.`);
+
+  if (rawNames.length > LIMITS.maxEntries) {
+    throw new Error(`Archive contains ${rawNames.length.toLocaleString()} files; the safety limit is ${LIMITS.maxEntries.toLocaleString()}.`);
+  }
   if (rawNames.some(isUnsafePath)) throw new Error('Archive contains unsafe relative paths and was rejected.');
 
   const javaRoot = findRootFor(rawNames, 'pack.mcmeta');
@@ -45,7 +49,13 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     return invalidInspection(zip, expectedEdition, 'Could not find pack.mcmeta or manifest.json at the root (or inside one wrapper folder).');
   }
   if (detectedEdition !== expectedEdition) {
-    return invalidInspection(zip, expectedEdition, `This looks like a ${capitalize(detectedEdition)} pack, not a ${capitalize(expectedEdition)} pack.`, detectedEdition, rootPrefix);
+    return invalidInspection(
+      zip,
+      expectedEdition,
+      `This looks like a ${capitalize(detectedEdition)} pack, not a ${capitalize(expectedEdition)} pack.`,
+      detectedEdition,
+      rootPrefix
+    );
   }
 
   const names = normalizedNames(rawNames, rootPrefix);
@@ -61,6 +71,7 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     } catch {
       return invalidInspection(zip, expectedEdition, 'pack.mcmeta is not valid JSON.', detectedEdition, rootPrefix);
     }
+
     const min = metadata?.pack?.min_format;
     if (Array.isArray(min) && Number(min[0]) !== SUPPORTED.java.minFormat[0]) {
       warnings.push(`pack.mcmeta reports min_format ${JSON.stringify(min)}; this converter is tuned for Java ${SUPPORTED.java.id}.`);
@@ -75,9 +86,13 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     } catch {
       return invalidInspection(zip, expectedEdition, 'manifest.json is not valid JSON.', detectedEdition, rootPrefix);
     }
-    if (metadata?.format_version !== 2) warnings.push(`manifest.json format_version is ${metadata?.format_version ?? 'missing'}; version 2 is expected.`);
+
+    if (metadata?.format_version !== 2) {
+      warnings.push(`manifest.json format_version is ${metadata?.format_version ?? 'missing'}; version 2 is expected.`);
+    }
     const hasResourcesModule = Array.isArray(metadata?.modules) && metadata.modules.some(m => m?.type === 'resources');
     if (!hasResourcesModule) warnings.push('No resources module was found in manifest.json.');
+
     const min = metadata?.header?.min_engine_version;
     if (Array.isArray(min) && min.join('.') !== SUPPORTED.bedrock.minEngineVersion.join('.')) {
       warnings.push(`Pack targets Bedrock ${min.join('.')}; mapping data is tuned for ${SUPPORTED.bedrock.id}.`);
@@ -101,10 +116,20 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
   };
 }
 
-export async function convertPack({ inspection, direction, experimentalUi = false, includeReport = true, onLog = () => {}, onProgress = () => {} }) {
+export async function convertPack({
+  inspection,
+  direction,
+  experimentalUi = false,
+  includeReport = true,
+  onLog = () => {},
+  onProgress = () => {},
+}) {
   if (!inspection?.valid) throw new Error('A valid scanned source pack is required.');
+
   const sourceEdition = direction === 'java-to-bedrock' ? 'java' : 'bedrock';
-  if (inspection.detectedEdition !== sourceEdition) throw new Error(`Direction expects a ${capitalize(sourceEdition)} source pack.`);
+  if (inspection.detectedEdition !== sourceEdition) {
+    throw new Error(`Direction expects a ${capitalize(sourceEdition)} source pack.`);
+  }
 
   const output = new window.JSZip();
   const names = inspection.names;
@@ -112,6 +137,9 @@ export async function convertPack({ inspection, direction, experimentalUi = fals
   const skipped = [];
   const mappings = [];
   const occupied = new Set();
+  const previewEntries = [];
+  let previewTruncated = false;
+
   const root = inspection.rootPrefix;
   const input = inspection.zip;
   const total = Math.max(names.length, 1);
@@ -128,14 +156,32 @@ export async function convertPack({ inspection, direction, experimentalUi = fals
       ? mapJavaToBedrock(sourcePath, experimentalUi)
       : mapBedrockToJava(sourcePath, experimentalUi);
 
+    const isPng = sourcePath.toLowerCase().endsWith('.png');
+
     if (!decision?.target) {
       stats.skipped++;
       if (skipped.length < 200) skipped.push(`${sourcePath} — ${decision?.reason || 'unsupported'}`);
-      if (i % 150 === 0) onProgress(Math.round(((i + 1) / total) * 82));
+
+      if (isPng) {
+        if (previewEntries.length < LIMITS.previewImages) {
+          const bytes = await sourceFile.async('uint8array');
+          previewEntries.push(makePreviewEntry({
+            sourcePath,
+            targetPath: null,
+            status: 'skipped',
+            reason: decision?.reason || 'Unsupported',
+            bytes,
+          }));
+        } else {
+          previewTruncated = true;
+        }
+      }
+
+      if (i % 100 === 0) onProgress(Math.round(((i + 1) / total) * 82));
       continue;
     }
 
-    let target = sanitizeTargetPath(decision.target);
+    const target = sanitizeTargetPath(decision.target);
     if (!target) {
       stats.skipped++;
       if (skipped.length < 200) skipped.push(`${sourcePath} — unsafe target path`);
@@ -152,8 +198,28 @@ export async function convertPack({ inspection, direction, experimentalUi = fals
     occupied.add(target);
     const bytes = await sourceFile.async('uint8array');
     output.file(target, bytes, { binary: true });
-    if (decision.mapped) stats.mapped++; else stats.passthrough++;
-    if (mappings.length < 250) mappings.push(`${sourcePath} -> ${target}${decision.mapped ? ' [mapped]' : ''}`);
+
+    if (decision.mapped) stats.mapped++;
+    else stats.passthrough++;
+
+    if (mappings.length < 250) {
+      mappings.push(`${sourcePath} -> ${target}${decision.mapped ? ' [mapped]' : ''}`);
+    }
+
+    if (isPng) {
+      if (previewEntries.length < LIMITS.previewImages) {
+        previewEntries.push(makePreviewEntry({
+          sourcePath,
+          targetPath: target,
+          status: decision.mapped ? 'mapped' : 'passthrough',
+          reason: '',
+          bytes,
+        }));
+      } else {
+        previewTruncated = true;
+      }
+    }
+
     if (i % 80 === 0) onProgress(Math.round(((i + 1) / total) * 82));
   }
 
@@ -164,25 +230,53 @@ export async function convertPack({ inspection, direction, experimentalUi = fals
   }
 
   if (includeReport) {
-    output.file('dazen-conversion-report.txt', createReport({ direction, stats, skipped, mappings, warnings: inspection.warnings }));
+    output.file(
+      'dazen-conversion-report.txt',
+      createReport({ direction, stats, skipped, mappings, warnings: inspection.warnings })
+    );
   }
 
   onProgress(86);
-  onLog('info', `Packaging output: ${stats.mapped} version-mapped textures/files, ${stats.passthrough} compatible passthrough files.`);
-  if (stats.skipped) onLog('warn', `${stats.skipped} files were skipped because this release does not have a safe target mapping.`);
+  onLog(
+    'info',
+    `Packaging output: ${stats.mapped} version-mapped textures/files, ${stats.passthrough} compatible passthrough files.`
+  );
+  if (stats.skipped) {
+    onLog('warn', `${stats.skipped} files were skipped because this release does not have a safe target mapping.`);
+  }
   if (stats.collisions) onLog('warn', `${stats.collisions} target-path collisions were prevented.`);
 
   const blob = await output.generateAsync(
-    { type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 }, streamFiles: true },
+    {
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+      streamFiles: true,
+    },
     meta => onProgress(86 + Math.round(meta.percent * 0.14))
   );
+
   onProgress(100);
 
   const extension = direction === 'java-to-bedrock' ? 'mcpack' : 'zip';
   const editionLabel = direction === 'java-to-bedrock' ? 'bedrock-1.26.50' : 'java-26.2.x';
   const fileName = `dazen-converted-${editionLabel}.${extension}`;
+
   onLog('success', `Conversion complete. Output size: ${formatBytes(blob.size)}.`);
-  return { blob, fileName, stats, skipped };
+  onLog(
+    'info',
+    `Visual comparison prepared for ${previewEntries.length.toLocaleString()} PNG textures${previewTruncated ? ` (preview capped at ${LIMITS.previewImages})` : ''}.`
+  );
+
+  return {
+    blob,
+    fileName,
+    stats,
+    skipped,
+    previewEntries,
+    previewTruncated,
+    previewLimit: LIMITS.previewImages,
+  };
 }
 
 function mapJavaToBedrock(path, experimentalUi) {
@@ -203,22 +297,44 @@ function mapJavaToBedrock(path, experimentalUi) {
   ];
 
   for (const [from, to] of rules) {
-    if (path.startsWith(from) && path.toLowerCase().endsWith('.png')) return passthrough(to + path.slice(from.length));
+    if (path.startsWith(from) && path.toLowerCase().endsWith('.png')) {
+      return passthrough(to + path.slice(from.length));
+    }
   }
 
   if (path.startsWith('assets/minecraft/textures/environment/') && path.toLowerCase().endsWith('.png')) {
     const rel = path.slice('assets/minecraft/textures/environment/'.length);
-    const direct = { 'clouds.png': 'clouds.png', 'end_sky.png': 'end_sky.png', 'celestial/sun.png': 'sun.png', 'celestial/end_flash.png': 'end_flash.png' }[rel];
-    return direct ? mapped('textures/environment/' + direct) : skip('Environment layout differs between editions.');
+    const direct = {
+      'clouds.png': 'clouds.png',
+      'end_sky.png': 'end_sky.png',
+      'celestial/sun.png': 'sun.png',
+      'celestial/end_flash.png': 'end_flash.png',
+    }[rel];
+    return direct
+      ? mapped('textures/environment/' + direct)
+      : skip('Environment layout differs between editions.');
   }
 
   if (path.startsWith('assets/minecraft/textures/gui/') && path.toLowerCase().endsWith('.png')) {
-    return experimentalUi ? passthrough('textures/gui/' + path.slice('assets/minecraft/textures/gui/'.length)) : skip('GUI conversion is experimental and disabled.');
+    return experimentalUi
+      ? passthrough('textures/gui/' + path.slice('assets/minecraft/textures/gui/'.length))
+      : skip('GUI conversion is experimental and disabled.');
   }
 
-  if (path.toLowerCase().endsWith('.png.mcmeta')) return skip('Java animation metadata is not directly compatible with Bedrock flipbooks.');
-  if (path.startsWith('assets/minecraft/models/') || path.startsWith('assets/minecraft/blockstates/') || path.startsWith('assets/minecraft/atlases/')) return skip('Java models/blockstates/atlases are outside texture-only conversion.');
-  if (path.startsWith('assets/minecraft/textures/font/') || path.startsWith('assets/minecraft/font/')) return skip('Font formats differ between editions.');
+  if (path.toLowerCase().endsWith('.png.mcmeta')) {
+    return skip('Java animation metadata is not directly compatible with Bedrock flipbooks.');
+  }
+  if (
+    path.startsWith('assets/minecraft/models/') ||
+    path.startsWith('assets/minecraft/blockstates/') ||
+    path.startsWith('assets/minecraft/atlases/')
+  ) {
+    return skip('Java models/blockstates/atlases are outside texture-only conversion.');
+  }
+  if (path.startsWith('assets/minecraft/textures/font/') || path.startsWith('assets/minecraft/font/')) {
+    return skip('Font formats differ between editions.');
+  }
+
   return skip('No safe Bedrock target mapping in the current architecture.');
 }
 
@@ -240,23 +356,100 @@ function mapBedrockToJava(path, experimentalUi) {
   ];
 
   for (const [from, to] of rules) {
-    if (path.startsWith(from) && path.toLowerCase().endsWith('.png')) return passthrough(to + path.slice(from.length));
+    if (path.startsWith(from) && path.toLowerCase().endsWith('.png')) {
+      return passthrough(to + path.slice(from.length));
+    }
   }
 
   if (path.startsWith('textures/environment/') && path.toLowerCase().endsWith('.png')) {
     const rel = path.slice('textures/environment/'.length);
-    const direct = { 'clouds.png': 'clouds.png', 'end_sky.png': 'end_sky.png', 'sun.png': 'celestial/sun.png', 'end_flash.png': 'celestial/end_flash.png' }[rel];
-    return direct ? mapped('assets/minecraft/textures/environment/' + direct) : skip('Environment atlas/layout differs between editions.');
+    const direct = {
+      'clouds.png': 'clouds.png',
+      'end_sky.png': 'end_sky.png',
+      'sun.png': 'celestial/sun.png',
+      'end_flash.png': 'celestial/end_flash.png',
+    }[rel];
+    return direct
+      ? mapped('assets/minecraft/textures/environment/' + direct)
+      : skip('Environment atlas/layout differs between editions.');
   }
 
   if (path.startsWith('textures/gui/') && path.toLowerCase().endsWith('.png')) {
-    return experimentalUi ? passthrough('assets/minecraft/textures/gui/' + path.slice('textures/gui/'.length)) : skip('GUI conversion is experimental and disabled.');
+    return experimentalUi
+      ? passthrough('assets/minecraft/textures/gui/' + path.slice('textures/gui/'.length))
+      : skip('GUI conversion is experimental and disabled.');
   }
 
-  if (path.toLowerCase().endsWith('.tga')) return skip('Java resource packs do not use Bedrock TGA textures directly.');
-  if (path.startsWith('models/') || path.startsWith('entity/') || path.startsWith('attachables/') || path.startsWith('render_controllers/') || path.startsWith('animations/') || path.startsWith('animation_controllers/')) return skip('Bedrock runtime/model JSON is outside texture-only conversion.');
-  if (path.startsWith('font/') || path.startsWith('ui/')) return skip('Bedrock font/UI definitions do not map directly to Java.');
+  if (path.toLowerCase().endsWith('.tga')) {
+    return skip('Java resource packs do not use Bedrock TGA textures directly.');
+  }
+  if (
+    path.startsWith('models/') ||
+    path.startsWith('entity/') ||
+    path.startsWith('attachables/') ||
+    path.startsWith('render_controllers/') ||
+    path.startsWith('animations/') ||
+    path.startsWith('animation_controllers/')
+  ) {
+    return skip('Bedrock runtime/model JSON is outside texture-only conversion.');
+  }
+  if (path.startsWith('font/') || path.startsWith('ui/')) {
+    return skip('Bedrock font/UI definitions do not map directly to Java.');
+  }
+
   return skip('No safe Java target mapping in the current architecture.');
+}
+
+function makePreviewEntry({ sourcePath, targetPath, status, reason, bytes }) {
+  return {
+    name: readableTextureName(sourcePath),
+    category: classifyTexture(sourcePath, targetPath),
+    sourcePath,
+    targetPath,
+    status,
+    reason,
+    imageBlob: new Blob([bytes], { type: 'image/png' }),
+  };
+}
+
+function classifyTexture(sourcePath, targetPath = '') {
+  const path = `${sourcePath} ${targetPath || ''}`.toLowerCase();
+
+  if (
+    path.includes('/block/') ||
+    path.includes('/blocks/') ||
+    path.startsWith('textures/blocks/')
+  ) return 'Blocks';
+
+  if (
+    path.includes('/item/') ||
+    path.includes('/items/') ||
+    path.startsWith('textures/items/')
+  ) return 'Items';
+
+  if (
+    path.includes('/entity/') ||
+    path.includes('/mobs/') ||
+    path.startsWith('textures/entity/')
+  ) return 'Mobs';
+
+  if (
+    path.includes('/font/') ||
+    path.includes('/fonts/') ||
+    path.startsWith('font/')
+  ) return 'Fonts';
+
+  if (path.includes('/gui/') || path.startsWith('ui/') || path.includes('/ui/')) return 'GUI';
+  if (path.includes('/environment/')) return 'Environment';
+
+  return 'Other Images';
+}
+
+function readableTextureName(path) {
+  const leaf = path.split('/').pop()?.replace(/\.png$/i, '') || path;
+  return leaf
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase());
 }
 
 function createBedrockManifest() {
@@ -302,15 +495,29 @@ function createReport({ direction, stats, skipped, mappings, warnings }) {
     `Prevented collisions: ${stats.collisions}`,
     '',
   ];
+
   if (warnings?.length) lines.push('SCAN WARNINGS', ...warnings.map(w => `- ${w}`), '');
   lines.push('MAPPINGS (first 250)', ...mappings.map(m => `- ${m}`), '');
   lines.push('SKIPPED (first 200)', ...(skipped.length ? skipped.map(s => `- ${s}`) : ['- None']), '');
-  lines.push('Note: This release focuses on classic PNG textures. Complex models, shaders, fonts, OptiFine/CIT, animation metadata and edition-specific GUIs may require manual conversion.');
+  lines.push(
+    'Note: This release focuses on classic PNG textures. Complex models, shaders, fonts, OptiFine/CIT, animation metadata and edition-specific GUIs may require manual conversion.'
+  );
+
   return lines.join('\n');
 }
 
 function invalidInspection(zip, expectedEdition, error, detectedEdition = null, rootPrefix = '') {
-  return { valid: false, zip, expectedEdition, detectedEdition, rootPrefix, error, warnings: [], names: [], counts: { files: 0, png: 0, tga: 0, mcmeta: 0 } };
+  return {
+    valid: false,
+    zip,
+    expectedEdition,
+    detectedEdition,
+    rootPrefix,
+    error,
+    warnings: [],
+    names: [],
+    counts: { files: 0, png: 0, tga: 0, mcmeta: 0 },
+  };
 }
 
 function findRootFor(names, marker) {
@@ -322,14 +529,30 @@ function findRootFor(names, marker) {
 }
 
 function normalizedNames(names, rootPrefix) {
-  return names.filter(n => n.startsWith(rootPrefix)).map(n => n.slice(rootPrefix.length)).filter(Boolean);
+  return names
+    .filter(n => n.startsWith(rootPrefix))
+    .map(n => n.slice(rootPrefix.length))
+    .filter(Boolean);
 }
-function isUnsafePath(path) { return path.split('/').some(part => part === '..') || path.startsWith('/') || path.includes('\\'); }
-function sanitizeTargetPath(path) { return isUnsafePath(path) ? null : path.replace(/^\/+/, ''); }
-function mapped(target) { return { target, mapped: true }; }
-function passthrough(target) { return { target, mapped: false }; }
-function skip(reason) { return { target: null, reason }; }
-function capitalize(value) { return value ? value[0].toUpperCase() + value.slice(1) : value; }
+
+function isUnsafePath(path) {
+  return path.split('/').some(part => part === '..') || path.startsWith('/') || path.includes('\\');
+}
+function sanitizeTargetPath(path) {
+  return isUnsafePath(path) ? null : path.replace(/^\/+/, '');
+}
+function mapped(target) {
+  return { target, mapped: true };
+}
+function passthrough(target) {
+  return { target, mapped: false };
+}
+function skip(reason) {
+  return { target: null, reason };
+}
+function capitalize(value) {
+  return value ? value[0].toUpperCase() + value.slice(1) : value;
+}
 function uuid() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -338,6 +561,7 @@ function uuid() {
     return v.toString(16);
   });
 }
+
 export function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
