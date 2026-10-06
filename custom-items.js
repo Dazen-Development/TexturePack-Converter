@@ -704,6 +704,23 @@ export async function convertBedrockCustomItems({ inspection, output, onLog = ()
       itemDefJson
     );
 
+    // Alternate/legacy ItemsAdder layout found in vendor packs:
+    // data/items_packs/<namespace>/*.yml
+    // data/resource_pack/assets/<namespace>/...
+    output.file(
+      `integrations/ItemsAdder/data/resource_pack/assets/dazen/textures/item/${slug}.png`,
+      bytes,
+      { binary: true }
+    );
+    output.file(
+      `integrations/ItemsAdder/data/resource_pack/assets/dazen/models/item/${slug}.json`,
+      modelJson
+    );
+    output.file(
+      `integrations/ItemsAdder/data/resource_pack/assets/dazen/items/${slug}.json`,
+      itemDefJson
+    );
+
     output.file(
       `integrations/Nexo/pack/assets/dazen/textures/item/${slug}.png`,
       bytes,
@@ -792,13 +809,18 @@ export async function convertBedrockCustomItems({ inspection, output, onLog = ()
     'integrations/ItemsAdder/contents/dazen_converted/configs/dazen_converted.yml',
     integrations.itemsAdder
   );
+
+  output.file(
+    'integrations/ItemsAdder/data/items_packs/dazen_converted/dazen_converted.yml',
+    integrations.itemsAdder
+  );
   output.file('integrations/Nexo/items/dazen_converted.yml', integrations.nexo);
   output.file('integrations/Oraxen/items/dazen_converted.yml', integrations.oraxen);
   output.file('integrations/README.txt', [
     'Dazen Texture Pack Converter - Java plugin integration helpers',
     '',
     'These files are generated helpers, not a substitute for testing on your server.',
-    'ItemsAdder: integrations/ItemsAdder mirrors contents/dazen_converted/{configs,resourcepack/assets}. Copy the dazen_converted content folder into plugins/ItemsAdder/contents and regenerate the pack.',
+    'ItemsAdder: two helper layouts are generated. Modern contents/: integrations/ItemsAdder/contents/dazen_converted/{configs,resourcepack/assets}. Alternate data/: integrations/ItemsAdder/data/{items_packs/dazen_converted,resource_pack/assets}. Use the structure that matches your installation/vendor pack and regenerate the pack.',
     'Nexo: integrations/Nexo mirrors Nexo/{items,pack/assets}. Copy/adapt these files into plugins/Nexo and regenerate/reload the pack.',
     'Oraxen: integrations/Oraxen mirrors Oraxen/{items,pack/assets}. Copy/adapt these files into plugins/Oraxen and regenerate the pack.',
     '',
