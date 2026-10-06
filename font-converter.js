@@ -335,6 +335,9 @@ export async function convertBedrockFontsToJava({ inspection, output, onLog = ()
 
   const providers = [];
   const previewEntries = [];
+  const iaGlyphs = [];
+  const nexoGlyphs = [];
+  const oraxenGlyphs = [];
   let converted = 0;
 
   for (const pageFile of pages) {
@@ -366,8 +369,46 @@ export async function convertBedrockFontsToJava({ inspection, output, onLog = ()
         Math.max(1, Math.round(cellH))
       );
       const id = `${page.toString(16)}_${slot.toString(16).padStart(2, '0')}`;
-      const javaTexture = `assets/dazen/textures/font/glyph_${id}.png`;
+      const fileName = `glyph_${id}.png`;
+      const resourceRef = `font/glyph_${id}`;
+      const javaTexture = `assets/dazen/textures/${fileName.startsWith('glyph_') ? 'font/' : ''}${fileName}`;
       output.file(javaTexture, glyphBlob);
+
+      output.file(
+        `integrations/ItemsAdder/contents/dazen_converted/textures/font/${fileName}`,
+        glyphBlob
+      );
+      output.file(
+        `integrations/Nexo/pack/assets/dazen/textures/font/${fileName}`,
+        glyphBlob
+      );
+      output.file(
+        `integrations/Oraxen/pack/textures/dazen/font/${fileName}`,
+        glyphBlob
+      );
+
+      const yamlChar = JSON.stringify(char);
+      iaGlyphs.push(
+        `  glyph_${id}:`,
+        `    path: "font/${fileName}"`,
+        `    symbol: ${yamlChar}`,
+        '    scale_ratio: 8',
+        '    y_position: 8'
+      );
+      nexoGlyphs.push(
+        `glyph_${id}:`,
+        `  texture: dazen:font/${fileName.replace(/\.png$/i, '')}`,
+        '  ascent: 8',
+        '  height: 8',
+        `  char: ${yamlChar}`
+      );
+      oraxenGlyphs.push(
+        `glyph_${id}:`,
+        `  texture: dazen/font/${fileName.replace(/\.png$/i, '')}`,
+        '  ascent: 8',
+        '  height: 8',
+        `  char: ${yamlChar}`
+      );
 
       providers.push({
         type: 'bitmap',
@@ -404,7 +445,22 @@ export async function convertBedrockFontsToJava({ inspection, output, onLog = ()
 
   if (providers.length) {
     output.file('assets/minecraft/font/default.json', JSON.stringify({ providers }, null, 2));
+
+    output.file(
+      'integrations/ItemsAdder/contents/dazen_converted/configs/dazen_fonts.yml',
+      ['info:', '  namespace: dazen_converted', 'font_images:', ...iaGlyphs].join('\n') + '\n'
+    );
+    output.file(
+      'integrations/Nexo/glyphs/dazen_converted.yml',
+      nexoGlyphs.join('\n') + '\n'
+    );
+    output.file(
+      'integrations/Oraxen/glyphs/dazen_converted.yml',
+      oraxenGlyphs.join('\n') + '\n'
+    );
+
     onLog('success', `Fonts: extracted ${providers.length} Bedrock private-use glyph cell(s) into Java bitmap font providers.`);
+    onLog('info', 'Generated ItemsAdder, Nexo and Oraxen font/glyph integration folders.');
   }
 
   return { converted, previewEntries, pages: pages.length };
