@@ -46,8 +46,11 @@ const refs = {
   outputMapped: document.querySelector('#output-mapped'),
   outputPassthrough: document.querySelector('#output-passthrough'),
   outputSkipped: document.querySelector('#output-skipped'),
+  outputCustomItems: document.querySelector('#output-custom-items'),
+  outputFonts: document.querySelector('#output-fonts'),
   outputPreviewable: document.querySelector('#output-previewable'),
   downloadOutput: document.querySelector('#download-output'),
+  downloadGeyserMappings: document.querySelector('#download-geyser-mappings'),
   viewOutput: document.querySelector('#view-output'),
 };
 
@@ -97,6 +100,7 @@ refs.clearConsole.addEventListener('click', () => {
 });
 refs.convertBtn.addEventListener('click', startConversion);
 refs.downloadOutput.addEventListener('click', downloadLatestOutput);
+refs.downloadGeyserMappings.addEventListener('click', downloadLatestGeyserMappings);
 refs.viewOutput.addEventListener('click', () => {
   if (!state.previewJobId) return;
   location.href = `./preview.html?job=${encodeURIComponent(state.previewJobId)}`;
@@ -140,11 +144,21 @@ async function loadPack(file) {
 
     if (inspection.valid) {
       setStatus('valid', 'Verified');
+      const adapterLabel = inspection.adapter?.plugins?.length
+        ? ` · detected ${inspection.adapter.plugins.join(' + ')} source architecture`
+        : '';
+      const customLabel = inspection.counts.customItems
+        ? ` · ${inspection.counts.customItems.toLocaleString()} custom item config(s)`
+        : '';
+      const glyphLabel = inspection.counts.glyphHints
+        ? ` · ${inspection.counts.glyphHints.toLocaleString()} glyph/font-image hint(s)`
+        : '';
       refs.summary.innerHTML =
         `<strong>Valid ${capitalize(edition)} source.</strong> ` +
         `${inspection.counts.files.toLocaleString()} files · ` +
         `${inspection.counts.png.toLocaleString()} PNG textures` +
-        `${inspection.rootPrefix ? ' · wrapper folder detected' : ''}.`;
+        `${inspection.rootPrefix ? ' · wrapper folder detected' : ''}` +
+        adapterLabel + customLabel + glyphLabel + '.';
 
       log(
         'success',
@@ -218,6 +232,7 @@ async function preparePreviewJob(result) {
     previewEntries: result.previewEntries,
     previewTruncated: result.previewTruncated,
     previewLimit: result.previewLimit,
+    artifacts: result.artifacts || {},
   };
 
   try {
@@ -243,11 +258,23 @@ function renderOutput(result) {
   refs.outputMapped.textContent = result.stats.mapped.toLocaleString();
   refs.outputPassthrough.textContent = result.stats.passthrough.toLocaleString();
   refs.outputSkipped.textContent = result.stats.skipped.toLocaleString();
+  refs.outputCustomItems.textContent = Number(result.stats.customItems || 0).toLocaleString();
+  refs.outputFonts.textContent = Number(result.stats.fontGlyphs || 0).toLocaleString();
   refs.outputPreviewable.textContent = result.previewEntries.length.toLocaleString();
 
+  const geyserBlob = result.artifacts?.geyserMappingsBlob;
+  refs.downloadGeyserMappings.hidden = !geyserBlob;
+
+  const moduleSummary = [
+    result.stats.customItems ? `${result.stats.customItems} custom item(s)` : null,
+    result.stats.fontGlyphs ? `${result.stats.fontGlyphs} font glyph(s)` : null,
+    result.artifacts?.threeDFallbacks ? `${result.artifacts.threeDFallbacks} 3D item icon fallback(s)` : null,
+    result.artifacts?.unresolvedCustomItems?.length ? `${result.artifacts.unresolvedCustomItems.length} item mapping(s) need review` : null,
+  ].filter(Boolean).join(' · ');
+
   refs.outputSummary.textContent = result.previewTruncated
-    ? `Conversion finished. Visual comparison prepared for the first ${result.previewLimit.toLocaleString()} previewable PNG entries.`
-    : 'Conversion finished. Download the archive or open the visual comparison viewer.';
+    ? `Conversion finished. Generic image preview was capped for browser performance. ${moduleSummary}`
+    : `Conversion finished. Download the archive or open the visual comparison/editor.${moduleSummary ? ' ' + moduleSummary + '.' : ''}`;
 
   refs.actionSubtitle.textContent =
     `${converted.toLocaleString()} files written · ${result.stats.skipped.toLocaleString()} skipped · result ready below.`;
@@ -266,6 +293,23 @@ function downloadLatestOutput() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   log('success', `Download started: ${result.fileName}`);
+}
+
+function downloadLatestGeyserMappings() {
+  const result = state.latestResult;
+  const blob = result?.artifacts?.geyserMappingsBlob;
+  if (!blob) return;
+
+  const fileName = result.artifacts.geyserMappingsFileName || 'dazen-geyser-custom-mappings.json';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  log('success', `Geyser mapping download started: ${fileName}`);
 }
 
 function configureDirection() {
@@ -320,6 +364,7 @@ function clearOutput() {
   state.previewJobId = null;
   refs.output.hidden = true;
   refs.viewOutput.disabled = false;
+  refs.downloadGeyserMappings.hidden = true;
 }
 
 function updateAction() {
