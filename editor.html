@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b0d12" />
+  <meta name="description" content="Adjust converted Minecraft texture placement and scale before downloading." />
+  <title>Texture Mapping Editor · Dazen Development</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="editor-page">
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+
+  <header class="site-header shell">
+    <a class="brand" href="./">
+      <span class="brand-mark">D</span>
+      <span>
+        <strong>Dazen Development</strong>
+        <small>Texture Mapping Editor</small>
+      </span>
+    </a>
+    <div class="header-actions">
+      <span class="privacy-pill">Edits stay on this device</span>
+      <button id="back-button" class="ghost-link editor-link-button" type="button">← Back to preview</button>
+    </div>
+  </header>
+
+  <main class="shell editor-main">
+    <section id="editor-loading" class="preview-state-card">
+      <div class="preview-spinner"></div>
+      <h1>Loading texture editor…</h1>
+      <p>Reading your locally stored conversion job.</p>
+    </section>
+
+    <section id="editor-missing" class="preview-state-card" hidden>
+      <span class="empty-icon">!</span>
+      <h1>This editable conversion was not found</h1>
+      <p>The browser may have cleared the local conversion job, or this row is not editable.</p>
+      <a class="primary-btn inline-btn" href="./">Start a new conversion →</a>
+    </section>
+
+    <div id="editor-content" hidden>
+      <section class="editor-heading">
+        <div>
+          <p class="section-kicker">Manual mapping correction</p>
+          <h1 id="editor-title">Texture</h1>
+          <p id="editor-reason" class="preview-source"></p>
+        </div>
+        <div class="editor-heading-actions">
+          <button id="reset-edit" class="secondary-btn" type="button">Reset</button>
+          <button id="save-edit" class="primary-btn" type="button">
+            <span>Save Correction</span><span>✓</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="editor-grid">
+        <article class="editor-panel source-panel">
+          <div class="editor-panel-head">
+            <div>
+              <span class="source-label">Source</span>
+              <strong>Original texture</strong>
+            </div>
+          </div>
+          <div class="editor-source-stage checkerboard">
+            <img id="editor-source-image" alt="Source texture" />
+          </div>
+          <code id="editor-source-path" class="editor-path"></code>
+        </article>
+
+        <article class="editor-panel transform-panel">
+          <div class="editor-panel-head">
+            <div>
+              <span class="source-label">Output correction</span>
+              <strong>Move or resize using the four corner points</strong>
+            </div>
+            <span id="editor-dimensions" class="dimension-badge"></span>
+          </div>
+
+          <div class="editor-stage-shell checkerboard">
+            <div id="editor-stage" class="editor-stage">
+              <canvas id="editor-canvas"></canvas>
+              <div id="selection-box" class="editor-selection" aria-label="Editable texture bounds">
+                <button class="editor-handle nw" data-corner="nw" type="button" aria-label="Resize from top left"></button>
+                <button class="editor-handle ne" data-corner="ne" type="button" aria-label="Resize from top right"></button>
+                <button class="editor-handle sw" data-corner="sw" type="button" aria-label="Resize from bottom left"></button>
+                <button class="editor-handle se" data-corner="se" type="button" aria-label="Resize from bottom right"></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="editor-help-grid">
+            <div><span>Move</span><strong>Drag inside the box</strong></div>
+            <div><span>Scale</span><strong>Drag any corner point</strong></div>
+            <div><span>Pixel mode</span><strong>No smoothing</strong></div>
+          </div>
+
+          <code id="editor-target-path" class="editor-path"></code>
+        </article>
+      </section>
+
+      <section class="editor-controls-card">
+        <div class="numeric-control">
+          <label for="edit-x">X</label>
+          <input id="edit-x" type="number" step="0.01" min="-2" max="2" />
+        </div>
+        <div class="numeric-control">
+          <label for="edit-y">Y</label>
+          <input id="edit-y" type="number" step="0.01" min="-2" max="2" />
+        </div>
+        <div class="numeric-control">
+          <label for="edit-width">Width</label>
+          <input id="edit-width" type="number" step="0.01" min="0.01" max="4" />
+        </div>
+        <div class="numeric-control">
+          <label for="edit-height">Height</label>
+          <input id="edit-height" type="number" step="0.01" min="0.01" max="4" />
+        </div>
+        <button id="center-edit" class="secondary-btn compact" type="button">Center</button>
+        <label class="check-option compact-check">
+          <input id="lock-aspect" type="checkbox" />
+          <span><strong>Lock aspect ratio</strong><small>Keep proportions while dragging corners.</small></span>
+        </label>
+      </section>
+
+      <section id="editor-save-status" class="editor-save-status" hidden></section>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
+  <script type="module" src="./editor.js"></script>
+</body>
+</html>
