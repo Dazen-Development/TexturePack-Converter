@@ -95,23 +95,31 @@ function showMissing() {
 }
 
 function defaultRect(sourceW, sourceH, targetW, targetH) {
-  const sourceRatio = sourceW / sourceH;
-  const targetRatio = targetW / targetH;
-
-  // Ordinary texture mappings start full-frame. For atlas cells with a
-  // different aspect ratio, contain the source so the initial editor view
-  // mirrors the safe conversion behavior.
-  if (Math.abs(sourceRatio - targetRatio) < 0.001) {
-    return { x: 0, y: 0, w: 1, h: 1 };
+  // Keep one source pixel equal to one target pixel by default. This matches
+  // real Bedrock glyph packs where a Java rank image (for example 64x18) is
+  // placed unscaled inside a larger glyph slot (for example 128x128).
+  if (sourceW <= targetW && sourceH <= targetH) {
+    const w = sourceW / targetW;
+    const h = sourceH / targetH;
+    return {
+      x: (1 - w) / 2,
+      y: (1 - h) / 2,
+      w,
+      h,
+    };
   }
 
-  if (sourceRatio > targetRatio) {
-    const h = targetRatio / sourceRatio;
-    return { x: 0, y: (1 - h) / 2, w: 1, h };
-  }
+  // Only scale down when the source physically cannot fit in the target.
+  const scale = Math.min(targetW / sourceW, targetH / sourceH);
+  const w = (sourceW * scale) / targetW;
+  const h = (sourceH * scale) / targetH;
 
-  const w = sourceRatio / targetRatio;
-  return { x: (1 - w) / 2, y: 0, w, h: 1 };
+  return {
+    x: (1 - w) / 2,
+    y: (1 - h) / 2,
+    w,
+    h,
+  };
 }
 
 function normalizeRect(value) {
