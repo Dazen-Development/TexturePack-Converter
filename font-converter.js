@@ -198,13 +198,21 @@ function allocateSuggestedCodePoint(used) {
 function makeSuggestionSnippets({ cp, sourcePath, id, namespace = 'dazen' }) {
   const char = String.fromCodePoint(cp);
   const key = safeKey(id || sourcePath?.split('/').pop() || 'glyph');
-  const sourceRef = javaTextureRef(sourcePath) || `${namespace}:font/${key}.png`;
-  const [, rawRef = `font/${key}.png`] = splitId(sourceRef, namespace);
-  const itemsAdderPath = rawRef.replace(/^font\//, 'font/');
-  const oraxenTexture = rawRef
-    .replace(/\.png$/i, '')
-    .replace(/^textures\//, '');
-  const nexoTexture = sourceRef.replace(/\.png$/i, '');
+  const sourceRef =
+    javaTextureRef(sourcePath) ||
+    `${namespace}:font/${key}.png`;
+
+  const pluginNamespace =
+    namespace === 'minecraft' || !namespace
+      ? 'dazen_converted'
+      : namespace;
+
+  const sourceLeaf =
+    sourcePath?.split('/').pop()?.replace(/\.png$/i, '') ||
+    key;
+
+  const pluginTextureRef =
+    `${pluginNamespace}:font/${safeKey(sourceLeaf)}`;
 
   return {
     javaJson: [
@@ -217,25 +225,28 @@ function makeSuggestionSnippets({ cp, sourcePath, id, namespace = 'dazen' }) {
       '}',
     ].join('\n'),
     itemsAdder: [
+      `# Copy PNG to: contents/${pluginNamespace}/textures/font/${safeKey(sourceLeaf)}.png`,
       'info:',
-      `  namespace: ${namespace}`,
+      `  namespace: ${pluginNamespace}`,
       'font_images:',
       `  ${key}:`,
-      `    path: "${itemsAdderPath}"`,
+      `    path: "font/${safeKey(sourceLeaf)}.png"`,
       `    symbol: "${char}"`,
       '    scale_ratio: 8',
       '    y_position: 8',
     ].join('\n'),
     nexo: [
+      `# Copy PNG to: Nexo/pack/assets/${pluginNamespace}/textures/font/${safeKey(sourceLeaf)}.png`,
       `${key}:`,
-      `  texture: ${nexoTexture}`,
+      `  texture: ${pluginTextureRef}`,
       '  ascent: 8',
       '  height: 8',
       `  char: "${char}"`,
     ].join('\n'),
     oraxen: [
+      `# Copy PNG to: Oraxen/pack/assets/${pluginNamespace}/textures/font/${safeKey(sourceLeaf)}.png`,
       `${key}:`,
-      `  texture: ${oraxenTexture}`,
+      `  texture: ${pluginTextureRef}`,
       '  ascent: 8',
       '  height: 8',
       `  char: "${char}"`,
