@@ -824,3 +824,217 @@ code { color: #e5acb3; }
   .editor-controls-card .compact-check { grid-column: 1 / -1; }
   .editor-help-grid { grid-template-columns: 1fr; }
 }
+
+
+/* Glyph mapping diagnostics */
+.glyph-character-line {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 9px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0,0,0,.16);
+}
+.glyph-character-line.suggested {
+  border-color: rgba(255,199,102,.28);
+  background: rgba(255,199,102,.05);
+}
+.glyph-character-preview {
+  display: grid !important;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.06);
+  color: white !important;
+  font-size: 1.05rem !important;
+  overflow: hidden;
+}
+.glyph-character-labels strong,
+.glyph-character-labels small {
+  display: block;
+}
+.glyph-character-labels strong {
+  font-size: .68rem;
+  color: var(--text);
+}
+.glyph-character-labels small {
+  margin-top: 2px;
+  font-size: .57rem;
+  color: var(--muted);
+}
+.copy-chip {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,.035);
+  color: var(--text);
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: .62rem;
+  font-weight: 800;
+}
+.copy-chip:hover {
+  border-color: var(--border-strong);
+  background: rgba(255,255,255,.07);
+}
+
+.glyph-config-suggestions {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(255,199,102,.2);
+  border-radius: 12px;
+  background: rgba(255,199,102,.035);
+  overflow: hidden;
+}
+.glyph-config-suggestions > summary {
+  cursor: pointer;
+  padding: 11px 13px;
+  color: #ffd898;
+  font-size: .72rem;
+  font-weight: 800;
+}
+.glyph-config-suggestions > p {
+  margin: 0;
+  padding: 0 13px 12px;
+  color: var(--muted);
+  font-size: .68rem;
+}
+.config-snippet {
+  border-top: 1px solid var(--border);
+  padding: 11px 13px 13px;
+}
+.config-snippet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+.config-snippet-head strong {
+  font-size: .67rem;
+}
+.config-snippet pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #07090c;
+  padding: 10px;
+}
+.config-snippet code {
+  color: #cdd2df;
+  font-size: .64rem;
+  white-space: pre;
+}
+
+.glyph-atlas-row {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(155,17,30,.035), transparent 36%),
+    rgba(255,255,255,.012);
+}
+.glyph-atlas-row:last-child {
+  border-bottom: 0;
+}
+.glyph-atlas-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 15px;
+  margin-bottom: 12px;
+}
+.glyph-atlas-head strong,
+.glyph-atlas-head p {
+  display: block;
+}
+.glyph-atlas-head strong {
+  margin-top: 3px;
+  font-size: .9rem;
+}
+.glyph-atlas-head p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: .66rem;
+}
+.glyph-atlas-head code {
+  max-width: 48%;
+  color: var(--muted);
+  font-size: .62rem;
+  overflow-wrap: anywhere;
+}
+.glyph-atlas-stage {
+  position: relative;
+  width: min(100%, 820px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  overflow: hidden;
+  background-color: #11151b;
+}
+.glyph-atlas-stage > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  object-fit: fill;
+}
+.glyph-atlas-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  grid-template-rows: repeat(16, 1fr);
+  pointer-events: none;
+}
+.glyph-atlas-cell {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  min-width: 0;
+  min-height: 0;
+  padding: 1px 2px;
+  border-right: 1px solid rgba(255,255,255,.12);
+  border-bottom: 1px solid rgba(255,255,255,.12);
+  color: rgba(255,255,255,.46);
+  text-shadow: 0 1px 2px rgba(0,0,0,.95);
+  font: 600 clamp(5px, .75vw, 9px)/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.glyph-atlas-cell.used {
+  color: white;
+  background: rgba(155,17,30,.09);
+  box-shadow: inset 0 0 0 1px rgba(211,47,65,.25);
+}
+.glyph-atlas-note {
+  margin: 10px auto 0;
+  max-width: 820px;
+  color: var(--muted);
+  font-size: .68rem;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .glyph-atlas-head {
+    flex-direction: column;
+  }
+  .glyph-atlas-head code {
+    max-width: 100%;
+  }
+  .glyph-atlas-cell {
+    padding: 0;
+    font-size: 4px;
+  }
+  .glyph-character-line {
+    grid-template-columns: auto 1fr;
+  }
+  .glyph-character-line .copy-chip {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
