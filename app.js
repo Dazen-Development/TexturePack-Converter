@@ -55,6 +55,18 @@ const refs = {
   viewOutput: document.querySelector('#view-output'),
 };
 
+function toast(type, title, message, duration) {
+  const api = window.DazenToast;
+  if (api?.show) {
+    api.show({ type, title, message, duration });
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent('dazen:toast', {
+    detail: { type, title, message, duration },
+  }));
+}
+
 for (const button of refs.directionButtons) {
   button.addEventListener('click', () => {
     if (state.busy || button.dataset.direction === state.direction) return;
@@ -63,6 +75,7 @@ for (const button of refs.directionButtons) {
     resetSource();
     configureDirection();
     log('info', `Direction set to ${directionLabel()}.`);
+    toast('info', 'Conversion direction changed', directionLabel(), 2600);
   });
 }
 
@@ -98,12 +111,16 @@ refs.dropzone.addEventListener('drop', event => {
 refs.clearConsole.addEventListener('click', () => {
   refs.console.innerHTML = '';
   log('info', 'Console cleared.');
+  toast('info', 'Console cleared', 'Process output has been cleared.', 2400);
 });
 refs.convertBtn.addEventListener('click', startConversion);
 refs.downloadOutput.addEventListener('click', downloadLatestOutput);
 refs.downloadGeyserMappings.addEventListener('click', downloadLatestGeyserMappings);
 refs.viewOutput.addEventListener('click', () => {
-  if (!state.previewJobId) return;
+  if (!state.previewJobId) {
+    toast('warning', 'Preview unavailable', 'Run a successful conversion before opening the visual editor.');
+    return;
+  }
   location.href = `./preview.html?job=${encodeURIComponent(state.previewJobId)}`;
 });
 
@@ -120,6 +137,11 @@ async function loadPack(file) {
     setStatus('invalid', 'Invalid');
     refs.summary.textContent = `Unsupported file type .${ext || 'unknown'}. Expected ${allowed.map(x => '.' + x).join(' or ')}.`;
     log('error', `${file.name}: expected ${allowed.map(x => '.' + x).join(' or ')} for a ${capitalize(edition)} source pack.`);
+    toast(
+      'error',
+      'Unsupported file type',
+      `Expected ${allowed.map(x => '.' + x).join(' or ')} for a ${capitalize(edition)} source pack.`
+    );
     return;
   }
 
@@ -165,11 +187,17 @@ async function loadPack(file) {
         'success',
         `${capitalize(edition)} architecture verified: ${inspection.counts.files.toLocaleString()} files, ${inspection.counts.png.toLocaleString()} PNG textures.`
       );
+      toast(
+        'success',
+        'Pack verified',
+        `${inspection.counts.files.toLocaleString()} files · ${inspection.counts.png.toLocaleString()} PNG textures detected.`
+      );
       for (const warning of inspection.warnings) log('warn', warning);
     } else {
       setStatus('invalid', 'Rejected');
       refs.summary.textContent = inspection.error;
       log('error', `${file.name}: ${inspection.error}`);
+      toast('error', 'Pack rejected', inspection.error);
     }
   } catch (error) {
     state.source.inspection = null;
@@ -177,6 +205,7 @@ async function loadPack(file) {
     setProgress(0);
     refs.summary.textContent = error.message || String(error);
     log('error', error.message || String(error));
+    toast('error', 'Could not read pack', error.message || String(error));
   } finally {
     updateAction();
   }
@@ -209,10 +238,17 @@ async function startConversion() {
     await preparePreviewJob(result);
     renderOutput(result);
     recordConversion();
+    toast(
+      'success',
+      'Conversion complete',
+      `${result.fileName} is ready to preview or download.`,
+      5600
+    );
     refs.output.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } catch (error) {
     refs.progressLabel.textContent = 'Conversion failed';
     log('error', error.message || String(error));
+    toast('error', 'Conversion failed', error.message || String(error), 6500);
   } finally {
     state.busy = false;
     refs.convertBtn.classList.remove('busy');
@@ -259,6 +295,12 @@ async function preparePreviewJob(result) {
     log(
       'warn',
       `Pack converted, but the browser could not save a reliable visual preview: ${error.message || error}`
+    );
+    toast(
+      'warning',
+      'Preview could not be saved',
+      'The pack converted successfully, but the visual preview is unavailable on this device.',
+      6500
     );
   }
 }
@@ -310,6 +352,7 @@ function downloadLatestOutput() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   log('success', `Download started: ${result.fileName}`);
+  toast('success', 'Download started', result.fileName, 3200);
 }
 
 function downloadLatestGeyserMappings() {
@@ -327,6 +370,7 @@ function downloadLatestGeyserMappings() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   log('success', `Geyser mapping download started: ${fileName}`);
+  toast('success', 'Geyser mappings download started', fileName, 3200);
 }
 
 function configureDirection() {
