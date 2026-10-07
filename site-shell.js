@@ -401,13 +401,13 @@ function dismissToast(entry, reason = 'dismissed') {
   if (!entry || entry.dismissed) return;
   entry.dismissed = true;
   clearTimeout(entry.timer);
+  removeToastEntry(entry);
 
   entry.element.classList.add('is-leaving');
   entry.element.dataset.dismissReason = reason;
 
   setTimeout(() => {
     entry.element.remove();
-    removeToastEntry(entry);
   }, 220);
 }
 
