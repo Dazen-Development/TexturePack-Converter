@@ -45,7 +45,7 @@
 
   <link rel="stylesheet" href="./styles.css" />
 </head>
-<body data-page="converter">
+<body class="converter-page" data-page="converter">
   <div id="dazen-nav-load-track" aria-hidden="true"><span id="dazen-nav-load-progress"></span></div>
   <div id="dazen-page-loader" role="status" aria-live="polite">
     <div class="dazen-loader-card">
@@ -58,29 +58,40 @@
       <span id="dazen-load-text">Loading Dazen utilities…</span>
     </div>
   </div>
-\n  <div id="site-sidebar"></div>
+
+  <div id="site-sidebar"></div>
   <div class="ambient ambient-one" aria-hidden="true"></div>
   <div class="ambient ambient-two" aria-hidden="true"></div>
 
-  <header class="site-header shell">
-    <div class="utility-header-copy">
+  <header class="site-header shell app-page-header converter-app-header">
+    <div>
       <p class="section-kicker">Config & Utilities</p>
-      <h1 class="utility-header-title">Resource Pack Converter</h1>
+      <h1 class="page-title">Resource Pack Converter</h1>
+      <p class="page-subtitle">Convert, inspect, and refine Java ↔ Bedrock resource packs inside the Dazen utility workspace.</p>
     </div>
     <div class="header-actions">
       <a class="ghost-link" href="https://github.com/Dazen-Development/TexturePack-Converter" target="_blank" rel="noreferrer">GitHub ↗</a>
     </div>
   </header>
 
-  <main class="shell main-content">
-    <section class="hero">
-      <div class="eyebrow">Minecraft resource pack utility</div>
-      <h1>Convert Java ↔ Bedrock<br><span>without uploading your pack.</span></h1>
-      <p class="hero-copy">Choose the target edition, upload only the required source pack, scan its architecture, then inspect and download the conversion result.</p>
-      <div class="support-badges" aria-label="Current version support">
-        <span>Java 26.2.x</span>
-        <span class="swap-dot">⇄</span>
-        <span>Bedrock 1.26.50</span>
+  <main class="shell converter-page-main">
+    <section class="converter-overview-card" aria-labelledby="converter-overview-title">
+      <div class="converter-overview-copy">
+        <div class="eyebrow">Minecraft resource pack utility</div>
+        <h2 id="converter-overview-title">Java ↔ Bedrock conversion workspace</h2>
+        <p>Choose a direction, add the source pack, verify its architecture, then inspect, edit, and download the result from the same Dazen workspace.</p>
+      </div>
+      <div class="converter-overview-meta">
+        <div class="converter-version-route" aria-label="Current version support">
+          <span>Java 26.2.x</span>
+          <b>⇄</b>
+          <span>Bedrock 1.26.50</span>
+        </div>
+        <div class="converter-overview-points">
+          <span><i class="status-dot success"></i> Browser-local processing</span>
+          <span><i class="status-dot success"></i> Visual preview & editor</span>
+          <span><i class="status-dot success"></i> Geyser / plugin-aware output</span>
+        </div>
       </div>
     </section>
 
@@ -262,7 +273,7 @@
 
   <footer class="site-footer shell">
     <div class="credit-block">
-      <span class="brand-mark small">D</span>
+      <img class="footer-org-logo" src="https://avatars.githubusercontent.com/u/317466458?v=4" alt="Dazen Development logo" width="34" height="34" />
       <div>
         <strong>Dazen Development</strong>
         <span>Open-source Minecraft tooling</span>
@@ -280,6 +291,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" crossorigin="anonymous"></script>
+  <script type="module" src="./site-shell.js"></script>
   <script type="module" src="./app.js"></script>
-  <script type="module" src="./site-shell.js"></script>\n</body>
+</body>
 </html>
