@@ -607,7 +607,9 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
       category: 'Items',
       sourcePath: renderedModelIcon ? (icon.modelPath || icon.texturePath) : icon.texturePath,
       targetPath: actualBedrockTexture,
-      status: mapped ? 'mapped' : 'unresolved',
+      status: mapped
+        ? (icon.is3d ? 'partial' : 'mapped')
+        : 'unresolved',
       reason: mapped
         ? (
             icon.is3d
