@@ -1819,3 +1819,241 @@ body.has-sidebar .hero {
   line-height: 1.1;
   letter-spacing: -.025em;
 }
+
+
+/* =========================================================
+   Global Dazen loading experience
+   ========================================================= */
+#dazen-load-track {
+  position: fixed;
+  z-index: 10002;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: rgba(255,255,255,.035);
+  pointer-events: none;
+}
+
+#dazen-load-progress {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(.05);
+  transform-origin: left center;
+  background: linear-gradient(90deg, #9b111e, #ef5264);
+  box-shadow: 0 0 12px rgba(239,82,100,.65);
+  transition: transform .15s ease;
+}
+
+#dazen-page-loader {
+  position: fixed;
+  z-index: 10001;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(155,17,30,.12), transparent 18rem),
+    #090b0f;
+  transition: opacity .24s ease, visibility .24s ease;
+}
+
+#dazen-page-loader[hidden] {
+  display: none;
+}
+
+#dazen-page-loader.is-leaving {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.dazen-loader-card {
+  text-align: center;
+}
+
+.dazen-loader-logo-wrap {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  margin: 0 auto 18px;
+  display: grid;
+  place-items: center;
+}
+
+.dazen-loader-logo {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  object-fit: cover;
+  box-shadow: 0 12px 34px rgba(0,0,0,.35);
+}
+
+.dazen-loader-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255,255,255,.08);
+  border-top-color: var(--accent-2);
+  border-right-color: var(--accent-2);
+  border-radius: 50%;
+  animation: dazen-spin .85s linear infinite;
+}
+
+.dazen-loader-card strong,
+.dazen-loader-card span {
+  display: block;
+}
+
+.dazen-loader-card strong {
+  font-size: .92rem;
+}
+
+.dazen-loader-card span {
+  margin-top: 4px;
+  color: var(--muted-2);
+  font-size: .68rem;
+}
+
+@keyframes dazen-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* =========================================================
+   Generic tool placeholder route
+   ========================================================= */
+.tool-page-main {
+  padding: 28px 0 72px;
+}
+
+.tool-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255,199,102,.22);
+  border-radius: 999px;
+  background: rgba(255,199,102,.06);
+  color: #ffd28a;
+  font-size: .66rem;
+  font-weight: 800;
+}
+
+.tool-placeholder-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 24px;
+  align-items: start;
+  padding: clamp(24px, 4vw, 38px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(180deg, rgba(22,25,33,.93), rgba(12,14,19,.95));
+  box-shadow: var(--shadow);
+}
+
+.tool-placeholder-icon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 20px;
+  background: linear-gradient(145deg, rgba(190,32,48,.28), rgba(118,8,18,.22));
+  border: 1px solid rgba(211,47,65,.22);
+  color: #f2a0aa;
+  font-size: 1rem;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+.tool-placeholder-copy h2 {
+  margin: 5px 0 8px;
+  font-size: clamp(1.7rem, 4vw, 2.7rem);
+  letter-spacing: -.045em;
+}
+
+.tool-placeholder-copy > p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  font-size: .82rem;
+  line-height: 1.65;
+}
+
+.tool-capability-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 18px;
+  max-width: 760px;
+}
+
+.tool-capability-list > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,.018);
+}
+
+.tool-capability-list span {
+  color: var(--green);
+  font-weight: 900;
+}
+
+.tool-capability-list strong {
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+.tool-roadmap-card {
+  display: grid;
+  grid-template-columns: minmax(230px, .65fr) minmax(0, 1.35fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(255,255,255,.018);
+}
+
+.tool-roadmap-card h2 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.tool-roadmap-card > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: .73rem;
+  line-height: 1.65;
+}
+
+/* Ensure nav labels remain clean after removing old badges/external links. */
+.sidebar-nav-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .tool-placeholder-card {
+    grid-template-columns: 1fr;
+  }
+
+  .tool-placeholder-icon {
+    width: 62px;
+    height: 62px;
+    border-radius: 16px;
+  }
+
+  .tool-capability-list {
+    grid-template-columns: 1fr;
+  }
+
+  .tool-roadmap-card {
+    grid-template-columns: 1fr;
+  }
+}
