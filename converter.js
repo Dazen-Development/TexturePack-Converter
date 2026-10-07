@@ -573,9 +573,14 @@ export async function convertPack({
   ];
 
   const enhancedSourcePaths = new Set(
-    enhancedPreview
-      .map(entry => entry.sourcePath)
-      .filter(Boolean)
+    [
+      ...enhancedPreview.flatMap(entry => [
+        entry.sourcePath,
+        entry.metadata?.sourceTextureAtlas,
+        entry.metadata?.modelPath,
+      ]),
+      ...(customItemsResult?.handledSourcePaths || []),
+    ].filter(Boolean)
   );
 
   // Generic path conversion runs before the specialized item/font modules.
