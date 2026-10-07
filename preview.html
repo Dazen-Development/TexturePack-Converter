@@ -8,12 +8,12 @@
   <title>Conversion Preview · Dazen Texture Pack Converter</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
-<body class="preview-page">
+<body class="preview-page" data-page="converter">\n  <div id="site-sidebar"></div>
   <div class="ambient ambient-one" aria-hidden="true"></div>
   <div class="ambient ambient-two" aria-hidden="true"></div>
 
   <header class="site-header shell">
-    <a class="brand" href="./">
+    <a class="brand" href="./index.html">
       <span class="brand-mark">D</span>
       <span>
         <strong>Dazen Development</strong>
@@ -22,7 +22,7 @@
     </a>
     <div class="header-actions">
       <span class="privacy-pill">Preview stored on this device</span>
-      <a class="ghost-link" href="./">← New conversion</a>
+      <a class="ghost-link" href="./converter.html">← New conversion</a>
     </div>
   </header>
 
@@ -39,7 +39,7 @@
       <p id="preview-error-detail">This preview may have been cleared by the browser, opened on another device, or replaced by newer conversions.</p>
       <div class="preview-state-actions">
         <button id="preview-retry" class="secondary-btn" type="button">Retry Preview</button>
-        <a class="primary-btn inline-btn" href="./">Back to Converter →</a>
+        <a class="primary-btn inline-btn" href="./converter.html">Back to Converter →</a>
       </div>
     </section>
 
@@ -54,7 +54,7 @@
           <button id="preview-download" class="primary-btn" type="button">
             <span>Download Pack</span><span>↓</span>
           </button>
-          <a class="ghost-link large" href="./">Convert Another</a>
+          <a class="ghost-link large" href="./converter.html">Convert Another</a>
         </div>
       </section>
 
@@ -113,5 +113,5 @@
     }, 7000);
   </script>
   <script type="module" src="./preview.js?v=20261007-3"></script>
-</body>
+  <script type="module" src="./site-shell.js"></script>\n</body>
 </html>
