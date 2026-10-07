@@ -91,7 +91,7 @@ async function parseItemsAdder(zip, rawNames, pathMap) {
   const configs = rawNames.filter(n =>
     /(?:^|\/)contents\/[^/]+\/configs\/.*\.ya?ml$/i.test(n) ||
     /(?:^|\/)configs\/.*\.ya?ml$/i.test(n) ||
-    /(?:^|\/)data\/items_packs\/[^/]+\/.*\.ya?ml$/i.test(n)
+    /(?:^|\/)data\/items_packs\/.*\.ya?ml$/i.test(n)
   );
 
   for (const path of configs) {
@@ -299,6 +299,11 @@ async function parseOraxen(zip, rawNames, pathMap) {
         customModelData: numericOrNull(pack.custom_model_data),
         modelRef: typeof pack.model === 'string' ? qualify(pack.model, 'minecraft') : null,
         textureRefs: asArray(pack.textures).map(v => qualifyTexture(v, 'minecraft')).filter(Boolean),
+        stateModels: {
+          pulling: asArray(pack.pulling_models).map(v => qualify(v, 'minecraft')).filter(Boolean),
+          blocking: typeof pack.blocking_model === 'string' ? qualify(pack.blocking_model, 'minecraft') : null,
+          cast: typeof pack.cast_model === 'string' ? qualify(pack.cast_model, 'minecraft') : null,
+        },
         handheld: /(?:sword|axe|pickaxe|shovel|hoe|mace|bow|crossbow|rod|staff|spear|hammer|dagger)/i.test(itemId),
       });
     }
@@ -341,6 +346,190 @@ async function parseOraxen(zip, rawNames, pathMap) {
   return { itemHints: hints, glyphHints: glyphs, configPaths: [...configs, ...glyphConfigs] };
 }
 
+
+function markerRoots(names, marker) {
+  const suffix = '/' + marker.toLowerCase();
+  const roots = new Set();
+
+  for (const actual of names) {
+    const lower = actual.toLowerCase();
+    if (lower === marker.toLowerCase()) {
+      roots.add('');
+      continue;
+    }
+    if (lower.endsWith(suffix)) {
+      roots.add(actual.slice(0, -marker.length));
+    }
+  }
+
+  return [...roots];
+}
+
+function scoreResourcePackRoot(names, root) {
+  let score = 0;
+  let files = 0;
+  let models = 0;
+  let textures = 0;
+  let overrides = 0;
+
+  for (const actual of names) {
+    if (!actual.startsWith(root)) continue;
+    const normalized = actual.slice(root.length);
+    if (!normalized) continue;
+    files++;
+    if (/^assets\/[^/]+\/models\/.+\.json$/i.test(normalized)) models++;
+    if (/^assets\/[^/]+\/textures\/.+\.(png|tga)$/i.test(normalized)) textures++;
+    if (/^assets\/minecraft\/models\/item\/[^/]+\.json$/i.test(normalized)) overrides++;
+  }
+
+  score += Math.min(files, 500);
+  score += models * 4;
+  score += textures * 2;
+  score += overrides * 12;
+  if (/(?:^|\/)rss\/$/i.test(root)) score += 250;
+
+  return { score, files, models, textures, overrides };
+}
+
+function displayNameFromModel(modelRef) {
+  const leaf = String(modelRef || 'item').split(':').pop().split('/').pop();
+  return leaf
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function predicateState(predicate = {}) {
+  const entries = Object.entries(predicate)
+    .filter(([key]) => key !== 'custom_model_data');
+
+  if (!entries.length) return 'base';
+  if (predicate.blocking != null) return 'blocking';
+  if (predicate.cast != null) return 'cast';
+  if (predicate.pulling != null || predicate.pull != null) return 'pulling';
+  return entries.map(([key]) => key).sort().join('+') || 'variant';
+}
+
+async function parseRssResourcePack(zip, rawNames, pathMap) {
+  const candidateRoots = markerRoots(rawNames, 'pack.mcmeta')
+    .filter(root =>
+      /(?:^|\/)rss\/$/i.test(root) &&
+      rawNames.some(name => name.startsWith(root + 'assets/'))
+    )
+    .map(root => ({ root, ...scoreResourcePackRoot(rawNames, root) }))
+    .sort((a, b) => b.score - a.score);
+
+  if (!candidateRoots.length) {
+    return {
+      itemHints: [],
+      glyphHints: [],
+      configPaths: [],
+      rootPrefix: null,
+      architectureScore: 0,
+    };
+  }
+
+  const selected = candidateRoots[0];
+
+  for (const actual of rawNames) {
+    if (!actual.startsWith(selected.root)) continue;
+    const normalized = actual.slice(selected.root.length);
+    if (!normalized) continue;
+    if (
+      normalized === 'pack.mcmeta' ||
+      normalized === 'pack.png' ||
+      normalized.startsWith('assets/')
+    ) {
+      addMapped(pathMap, normalized, actual);
+    }
+  }
+
+  const groups = new Map();
+
+  for (const normalized of Object.keys(pathMap)) {
+    const match = normalized.match(/^assets\/minecraft\/models\/item\/([^/]+)\.json$/i);
+    if (!match) continue;
+
+    const actual = pathMap[normalized];
+    const text = await readText(zip, actual);
+    let doc = null;
+    try {
+      doc = text ? JSON.parse(text) : null;
+    } catch {
+      doc = null;
+    }
+    if (!Array.isArray(doc?.overrides)) continue;
+
+    const baseItem = normMaterial(match[1]);
+
+    for (const override of doc.overrides) {
+      const cmd = numericOrNull(override?.predicate?.custom_model_data);
+      if (cmd == null || typeof override?.model !== 'string') continue;
+
+      const key = `${baseItem}|${cmd}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          baseItem,
+          customModelData: cmd,
+          variants: [],
+          primary: null,
+        });
+      }
+
+      const group = groups.get(key);
+      const state = predicateState(override.predicate || {});
+      const variant = {
+        state,
+        modelRef: override.model,
+        predicate: override.predicate || {},
+      };
+      group.variants.push(variant);
+
+      if (state === 'base' || !group.primary) {
+        group.primary = variant;
+      }
+    }
+  }
+
+  const itemHints = [...groups.values()].map(group => {
+    const primary = group.primary || group.variants[0];
+    const modelRef = primary?.modelRef || null;
+    const stateModels = {
+      pulling: group.variants
+        .filter(v => v.state === 'pulling' && v.modelRef !== modelRef)
+        .map(v => v.modelRef),
+      blocking: group.variants.find(v => v.state === 'blocking')?.modelRef || null,
+      cast: group.variants.find(v => v.state === 'cast')?.modelRef || null,
+      variants: group.variants,
+    };
+
+    return {
+      plugin: 'rss',
+      id: `rss:${group.baseItem.replace(/^minecraft:/, '')}:${group.customModelData}`,
+      namespace: modelRef?.includes(':') ? modelRef.split(':')[0] : 'minecraft',
+      itemId: modelRef ? modelRef.split(':').pop().split('/').pop() : 'item',
+      displayName: displayNameFromModel(modelRef),
+      baseItem: group.baseItem,
+      itemModel: null,
+      mappingConfidence: 'explicit',
+      customModelData: group.customModelData,
+      modelRef,
+      textureRefs: [],
+      stateModels,
+      handheld: /(?:sword|axe|pickaxe|shovel|hoe|mace|bow|crossbow|rod|staff|spear|hammer|dagger)/i
+        .test(`${group.baseItem} ${modelRef || ''}`),
+    };
+  });
+
+  return {
+    itemHints,
+    glyphHints: [],
+    configPaths: [selected.root + 'pack.mcmeta'],
+    rootPrefix: selected.root,
+    architectureScore: selected.score,
+    rootCandidates: candidateRoots,
+  };
+}
+
 export async function detectJavaPluginBundle(zip, rawNames) {
   const usableNames = rawNames.filter(name =>
     !name.startsWith('__MACOSX/') &&
@@ -353,7 +542,7 @@ export async function detectJavaPluginBundle(zip, rawNames) {
     usableNames.some(n => /(?:^|\/)ItemsAdder\/(?:contents|data)\//i.test(n)) ||
     usableNames.some(n => /(?:^|\/)contents\/[^/]+\/(?:configs|resourcepack|textures)\//i.test(n)) ||
     (
-      usableNames.some(n => /(?:^|\/)data\/items_packs\/[^/]+\/.*\.ya?ml$/i.test(n)) &&
+      usableNames.some(n => /(?:^|\/)data\/items_packs\/.*\.ya?ml$/i.test(n)) &&
       usableNames.some(n => /(?:^|\/)data\/resource_pack\/assets\//i.test(n))
     ) ||
     (
@@ -367,11 +556,19 @@ export async function detectJavaPluginBundle(zip, rawNames) {
   const hasOraxen =
     usableNames.some(n => /(?:^|\/)Oraxen\/(?:items|pack|glyphs)\//i.test(n));
 
-  // Parse each plugin alternative into its OWN virtual Java resource tree.
-  // A vendor ZIP commonly contains the same pack three times (ItemsAdder,
-  // Nexo and Oraxen). Sharing one path map caused duplicate alternatives to
-  // leak into conversion as ordinary PNGs and show "No target mapping".
+  const hasRss =
+    usableNames.some(n => /(?:^|\/)RSS\/pack\.mcmeta$/i.test(n)) &&
+    usableNames.some(n => /(?:^|\/)RSS\/assets\//i.test(n));
+
   const adapters = [];
+
+  if (hasRss) {
+    const pathMap = makePathMap();
+    const parsed = await parseRssResourcePack(zip, usableNames, pathMap);
+    if (Object.keys(pathMap).length) {
+      adapters.push(['rss', parsed, pathMap]);
+    }
+  }
 
   if (hasIA) {
     const pathMap = makePathMap();
@@ -400,34 +597,80 @@ export async function detectJavaPluginBundle(zip, rawNames) {
     ]);
   }
 
-  if (!adapters.length) return null;
+  const usableAdapters = adapters.filter(([, parsed, map]) =>
+    Object.keys(map).length > 0 ||
+    (parsed.itemHints || []).length > 0 ||
+    (parsed.glyphHints || []).length > 0
+  );
 
-  // Vendor archives ship these as alternative install variants for the SAME
-  // content. Prefer ItemsAdder, then Nexo, then Oraxen, and convert only that
-  // primary virtual tree. Reverse output can still generate helper folders
-  // for every supported plugin.
-  const [primaryName, primary, primaryPathMap] = adapters[0];
+  if (!usableAdapters.length) return null;
+
+  // Select the architecture with the strongest directly verifiable mapping
+  // data. A bundled RSS resource-pack variant wins when it exposes explicit
+  // CustomModelData overrides; otherwise preserve the plugin preference order.
+  const quality = ([name, parsed, map], order) => {
+    const explicit = (parsed.itemHints || [])
+      .filter(h => Number.isFinite(h.customModelData) || !!h.itemModel).length;
+    const resources = Object.keys(map).length;
+    const rssBonus = name === 'rss' ? Number(parsed.architectureScore || 0) : 0;
+    return explicit * 10000 + rssBonus * 10 + resources - order;
+  };
+
+  const ranked = usableAdapters
+    .map((entry, order) => ({ entry, order, score: quality(entry, order) }))
+    .sort((a, b) => b.score - a.score);
+
+  const [primaryName, primary, primaryPathMap] = ranked[0].entry;
   const itemHints = primary.itemHints || [];
   const glyphHints = primary.glyphHints || [];
   const configPaths = primary.configPaths || [];
   const names = Object.keys(primaryPathMap);
-  const plugins = adapters.map(([name]) => name);
+  const plugins = usableAdapters.map(([name]) => name);
 
-  const alternativeCounts = Object.fromEntries(
-    adapters.map(([name, , map]) => [
+  const alternatives = Object.fromEntries(
+    usableAdapters.map(([name, parsed, map]) => [
       name,
-      Object.keys(map).length,
+      {
+        resourceFiles: Object.keys(map).length,
+        itemHints: (parsed.itemHints || []).length,
+        glyphHints: (parsed.glyphHints || []).length,
+        explicitMappings: (parsed.itemHints || [])
+          .filter(h => Number.isFinite(h.customModelData) || !!h.itemModel).length,
+        rootPrefix: parsed.rootPrefix || null,
+      },
+    ])
+  );
+
+  const mappingProfiles = Object.fromEntries(
+    usableAdapters.map(([name, parsed]) => [
+      name,
+      (parsed.itemHints || []).map(hint => ({
+        id: hint.id,
+        displayName: hint.displayName,
+        baseItem: hint.baseItem,
+        customModelData: hint.customModelData,
+        itemModel: hint.itemModel,
+        modelRef: hint.modelRef,
+        stateModels: hint.stateModels || null,
+        mappingConfidence: hint.mappingConfidence || 'unresolved',
+      })),
     ])
   );
 
   const warnings = [
-    `Detected Java plugin source bundle: ${plugins.join(', ')}.`,
-    `Using ${primaryName} as the primary source variant for conversion.`,
+    `Detected Java source architecture(s): ${plugins.join(', ')}.`,
+    `Automatically selected ${primaryName} as the primary conversion tree because it has the strongest verifiable mapping/resource data.`,
   ];
 
-  if (adapters.length > 1) {
+  if (usableAdapters.length > 1) {
     warnings.push(
-      'Multiple plugin alternatives were found in one vendor ZIP. Duplicate ItemsAdder/Nexo/Oraxen resource copies are now excluded from the conversion tree instead of being reported as unmapped files.'
+      'Multiple install variants were found in one vendor ZIP. The converter now auto-selects one normalized resource tree and excludes duplicate alternative copies from generic conversion.'
+    );
+  }
+
+  if (hasRss && primaryName === 'rss') {
+    warnings.push(
+      'RSS/vanilla CustomModelData overrides were detected and are being used as explicit item mapping data instead of guessing plugin-generated IDs.'
     );
   }
 
@@ -440,9 +683,9 @@ export async function detectJavaPluginBundle(zip, rawNames) {
 
   return {
     type:
-      adapters.length === 1
+      usableAdapters.length === 1
         ? primaryName
-        : 'multi-plugin-bundle',
+        : 'multi-architecture-bundle',
     primaryPlugin: primaryName,
     plugins,
     pathMap: primaryPathMap,
@@ -450,7 +693,8 @@ export async function detectJavaPluginBundle(zip, rawNames) {
     itemHints,
     glyphHints,
     configPaths,
-    alternativeCounts,
+    alternatives,
+    mappingProfiles,
     warnings,
   };
 }
