@@ -7,73 +7,53 @@ const ORG = {
 
 const navGroups = [
   {
-    label: 'OVERVIEW',
+    label: 'GENERATORS',
     items: [
-      { key: 'dashboard', label: 'Dashboard', href: './index.html', icon: '▦' },
-      { key: 'about', label: 'About Us', href: './about.html', icon: '◉' },
-      { key: 'privacy', label: 'Privacy Policy', href: './privacy.html', icon: '◇' },
-    ],
-  },
-  {
-    label: 'GENERATORS & PACKS',
-    items: [
-      { key: 'rank-generator', label: 'Rank Generator', href: 'https://tools.lamico.net/rank-gen', icon: 'R', badge: 'Hot', external: true },
-      { key: 'pack-generator', label: 'Pack Generator', href: 'https://tools.lamico.net/pack-gen', icon: 'P', external: true },
-      { key: 'item-pack-gen', label: 'Item Pack Gen', href: 'https://tools.lamico.net/item-pack', icon: 'I', external: true },
-      { key: 'pack-merger', label: 'Pack Merger', href: 'https://tools.lamico.net/pack-merger', icon: 'M', external: true },
-      { key: 'pack-hosting', label: 'Pack Hosting', href: 'https://tools.lamico.net/pack-host', icon: 'H', badge: 'Live', external: true },
+      { key: 'rank-generator', label: 'Rank Generator', href: './tool.html?tool=rank-generator', icon: 'R' },
+      { key: 'pack-generator', label: 'Pack Generator', href: './tool.html?tool=pack-generator', icon: 'P' },
+      { key: 'item-pack-gen', label: 'Item Pack Gen', href: './tool.html?tool=item-pack-gen', icon: 'I' },
+      { key: 'pack-merger', label: 'Pack Merger', href: './tool.html?tool=pack-merger', icon: 'M' },
     ],
   },
   {
     label: 'CONFIG & UTILITIES',
     items: [
       { key: 'converter', label: 'Resource Pack Converter', href: './converter.html', icon: '⇄' },
-      { key: 'server-tester', label: 'Server Tester', href: 'https://tools.lamico.net/server-tester', icon: 'S', badge: 'New', external: true },
-      { key: 'server-icon-maker', label: 'Server Icon Maker', href: 'https://tools.lamico.net/server-icon-maker', icon: '◫', external: true },
-      { key: 'motd-maker', label: 'MOTD Maker', href: 'https://tools.lamico.net/motd-maker', icon: 'T', external: true },
-      { key: 'rgb-gradients', label: 'RGB Gradients', href: 'https://tools.lamico.net/rgb-gen', icon: 'RGB', external: true },
-      { key: 'circle-generator', label: 'Circle Generator', href: 'https://tools.lamico.net/circle-gen', icon: '○', external: true },
-      { key: 'item-command', label: 'Item Command', href: 'https://tools.lamico.net/item-gen', icon: '/', external: true },
-      { key: 'menu-maker', label: 'Menu Maker', href: 'https://tools.lamico.net/menu-maker', icon: '☷', external: true },
-      { key: 'votifier-tester', label: 'Votifier Tester', href: 'https://tools.lamico.net/votifier-test', icon: 'V', external: true },
+      { key: 'server-tester', label: 'Server Tester', href: './tool.html?tool=server-tester', icon: 'S' },
+      { key: 'server-icon-maker', label: 'Server Icon Maker', href: './tool.html?tool=server-icon-maker', icon: '◫' },
+      { key: 'motd-maker', label: 'MOTD Maker', href: './tool.html?tool=motd-maker', icon: 'T' },
+      { key: 'rgb-gradients', label: 'RGB Gradients', href: './tool.html?tool=rgb-gradients', icon: 'RGB' },
+      { key: 'circle-generator', label: 'Circle Generator', href: './tool.html?tool=circle-generator', icon: '○' },
+      { key: 'item-command', label: 'Item Command', href: './tool.html?tool=item-command', icon: '/' },
+      { key: 'menu-maker', label: 'Menu Maker', href: './tool.html?tool=menu-maker', icon: '☷' },
+      { key: 'votifier-tester', label: 'Votifier Tester', href: './tool.html?tool=votifier-tester', icon: 'V' },
     ],
   },
 ];
 
 function currentPageKey() {
   const explicit = document.body?.dataset?.page;
-  if (explicit) return explicit;
+  if (explicit && explicit !== 'tool') return explicit;
 
   const file = location.pathname.split('/').pop() || 'index.html';
   if (file === 'converter.html' || file === 'preview.html' || file === 'editor.html') return 'converter';
-  if (file === 'about.html') return 'about';
-  if (file === 'privacy.html') return 'privacy';
-  return 'dashboard';
+  if (file === 'tool.html') return new URLSearchParams(location.search).get('tool') || '';
+  return '';
 }
 
 function renderNavItem(item, activeKey) {
   const active = item.key === activeKey ? ' active' : '';
-  const external = item.external ? ' target="_blank" rel="noreferrer"' : '';
-  const badge = item.badge
-    ? `<span class="sidebar-nav-badge ${item.badge.toLowerCase()}">${item.badge}</span>`
-    : '';
-  const externalMark = item.external
-    ? '<span class="sidebar-nav-external" aria-hidden="true">↗</span>'
-    : '';
 
   return `
-    <a class="sidebar-nav-item${active}" href="${item.href}" data-nav="${item.key}"${external}>
+    <a class="sidebar-nav-item${active}" href="${item.href}" data-nav="${item.key}">
       <span class="sidebar-nav-icon" aria-hidden="true">${item.icon}</span>
       <span class="sidebar-nav-text">${item.label}</span>
-      ${badge}
-      ${externalMark}
     </a>
   `;
 }
 
 function buildSidebar() {
   const activeKey = currentPageKey();
-
   const nav = navGroups.map(group => `
     <section class="sidebar-nav-group">
       <div class="sidebar-nav-label">${group.label}</div>
@@ -156,8 +136,120 @@ function installSidebar() {
   });
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', installSidebar, { once: true });
-} else {
+function pageLoaderElements() {
+  return {
+    overlay: document.querySelector('#dazen-page-loader'),
+    bar: document.querySelector('#dazen-load-progress'),
+    text: document.querySelector('#dazen-load-text'),
+  };
+}
+
+let progressTimer = null;
+let progressValue = 6;
+
+function setLoadProgress(value) {
+  progressValue = Math.max(0, Math.min(100, value));
+  const { bar } = pageLoaderElements();
+  if (bar) bar.style.transform = `scaleX(${progressValue / 100})`;
+}
+
+function startPageLoading(message = 'Loading Dazen utilities…') {
+  const { overlay, text } = pageLoaderElements();
+  document.documentElement.classList.add('dazen-loading');
+  if (overlay) overlay.hidden = false;
+  if (text) text.textContent = message;
+
+  clearInterval(progressTimer);
+  progressValue = Math.max(6, progressValue);
+  setLoadProgress(progressValue);
+
+  progressTimer = setInterval(() => {
+    const remaining = 91 - progressValue;
+    if (remaining <= 0.5) return;
+    progressValue += Math.max(.35, remaining * .055);
+    setLoadProgress(progressValue);
+  }, 120);
+}
+
+function finishPageLoading() {
+  clearInterval(progressTimer);
+  progressTimer = null;
+  setLoadProgress(100);
+
+  const { overlay } = pageLoaderElements();
+
+  setTimeout(() => {
+    document.documentElement.classList.remove('dazen-loading');
+    document.documentElement.classList.add('dazen-loaded');
+    if (overlay) overlay.classList.add('is-leaving');
+
+    setTimeout(() => {
+      if (overlay) overlay.hidden = true;
+      if (overlay) overlay.classList.remove('is-leaving');
+      setLoadProgress(0);
+    }, 260);
+  }, 120);
+}
+
+function installNavigationLoader() {
+  document.addEventListener('click', event => {
+    const link = event.target.closest('a[href]');
+    if (!link) return;
+    if (event.defaultPrevented) return;
+    if (event.button && event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (link.target === '_blank' || link.hasAttribute('download')) return;
+
+    const href = link.getAttribute('href');
+    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+
+    let target;
+    try {
+      target = new URL(link.href, location.href);
+    } catch {
+      return;
+    }
+
+    if (target.origin !== location.origin) return;
+    if (target.href === location.href) return;
+
+    startPageLoading('Opening ' + (link.textContent.trim() || 'page') + '…');
+  }, true);
+}
+
+function installLoadLifecycle() {
+  startPageLoading();
+
+  if (document.readyState === 'complete') {
+    requestAnimationFrame(finishPageLoading);
+  } else {
+    addEventListener('load', () => {
+      // Give fonts/images one frame to settle before revealing the app.
+      requestAnimationFrame(() => requestAnimationFrame(finishPageLoading));
+    }, { once: true });
+
+    // Never trap the user behind the loading screen if one third-party
+    // resource takes too long or fails to fire a normal load completion.
+    setTimeout(() => {
+      if (document.documentElement.classList.contains('dazen-loading')) {
+        finishPageLoading();
+      }
+    }, 9000);
+  }
+
+  addEventListener('pageshow', event => {
+    if (event.persisted) finishPageLoading();
+  });
+}
+
+function initShell() {
   installSidebar();
+  installNavigationLoader();
+  installLoadLifecycle();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initShell, { once: true });
+} else {
+  initShell();
 }
