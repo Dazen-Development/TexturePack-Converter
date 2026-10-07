@@ -3596,3 +3596,8 @@ html[data-theme="light"] .skipped-detail-reason p {
     justify-self: start;
   }
 }
+
+
+.comparison-status.partial strong {
+  color: var(--amber);
+}
