@@ -269,6 +269,15 @@ function pushMapping(mappings, baseItem, definition) {
   mappings.items[baseItem].push(definition);
 }
 
+function legacyPredicateState(predicate = {}) {
+  const keys = Object.keys(predicate).filter(key => key !== 'custom_model_data');
+  if (!keys.length) return 'base';
+  if (predicate.blocking != null) return 'blocking';
+  if (predicate.cast != null) return 'cast';
+  if (predicate.pulling != null || predicate.pull != null) return 'pulling';
+  return keys.sort().join('+') || 'variant';
+}
+
 async function scanGeneratedJavaItems(inspection) {
   const records = [];
   const names = inspection.names || [];
@@ -323,27 +332,69 @@ async function scanGeneratedJavaItems(inspection) {
     }
   }
 
-  // Pre-1.21.4 legacy overrides.
+  // Pre-1.21.4 legacy overrides. Group state predicates such as bow
+  // pulling, shield blocking and fishing-rod cast under one base CMD item.
+  // They are visual states of the same custom item, not separate mappings.
+  const legacyGroups = new Map();
+
   for (const path of names.filter(n => /^assets\/minecraft\/models\/item\/[^/]+\.json$/i.test(n))) {
     const doc = await readJson(inspection, path);
     if (!Array.isArray(doc?.overrides)) continue;
+
     const base = path.split('/').pop().replace(/\.json$/i, '');
+    const baseItem = `minecraft:${base}`;
+
     for (const override of doc.overrides) {
       const cmd = Number(override?.predicate?.custom_model_data);
       if (!Number.isFinite(cmd) || typeof override?.model !== 'string') continue;
-      records.push({
-        source: 'legacy-model-overrides',
-        mappingType: 'legacy',
-        baseItem: `minecraft:${base}`,
-        customModelData: cmd,
-        itemModel: null,
+
+      const key = `${baseItem}|${cmd}`;
+      if (!legacyGroups.has(key)) {
+        legacyGroups.set(key, {
+          baseItem,
+          customModelData: cmd,
+          primary: null,
+          variants: [],
+        });
+      }
+
+      const group = legacyGroups.get(key);
+      const state = legacyPredicateState(override.predicate || {});
+      const variant = {
+        state,
         modelRef: override.model,
-        defaultModelNamespace: 'minecraft',
-        displayName: titleCase(override.model),
-        hint: null,
-        predicate: null,
-      });
+        predicate: override.predicate || {},
+      };
+
+      group.variants.push(variant);
+      if (state === 'base' || !group.primary) group.primary = variant;
     }
+  }
+
+  for (const group of legacyGroups.values()) {
+    const primary = group.primary || group.variants[0];
+    if (!primary?.modelRef) continue;
+
+    records.push({
+      source: 'legacy-model-overrides',
+      mappingType: 'legacy',
+      baseItem: group.baseItem,
+      customModelData: group.customModelData,
+      itemModel: null,
+      modelRef: primary.modelRef,
+      defaultModelNamespace: 'minecraft',
+      displayName: titleCase(primary.modelRef),
+      hint: null,
+      predicate: null,
+      stateModels: {
+        pulling: group.variants
+          .filter(v => v.state === 'pulling' && v.modelRef !== primary.modelRef)
+          .map(v => v.modelRef),
+        blocking: group.variants.find(v => v.state === 'blocking')?.modelRef || null,
+        cast: group.variants.find(v => v.state === 'cast')?.modelRef || null,
+        variants: group.variants,
+      },
+    });
   }
 
   return records;
@@ -376,6 +427,7 @@ function mergePluginHints(records, inspection) {
         displayName: hint.displayName,
         hint,
         predicate: null,
+        stateModels: hint.stateModels || null,
         unresolvedReason: 'Plugin config does not expose a fixed CustomModelData or item_model identifier.',
       });
       continue;
@@ -392,6 +444,7 @@ function mergePluginHints(records, inspection) {
       displayName: hint.displayName,
       hint,
       predicate: null,
+      stateModels: hint.stateModels || null,
     };
     const sig = [record.mappingType, record.baseItem, record.customModelData, record.itemModel, record.modelRef].join('|');
     if (!signatures.has(sig)) {
@@ -404,6 +457,19 @@ function mergePluginHints(records, inspection) {
 
 export async function convertJavaCustomItems({ inspection, output, onLog = () => {} }) {
   const records = mergePluginHints(await scanGeneratedJavaItems(inspection), inspection);
+
+  if (inspection.adapter) {
+    output.file(
+      'dazen/detected_source_architectures.json',
+      JSON.stringify({
+        type: inspection.adapter.type,
+        primary: inspection.adapter.primaryPlugin,
+        detected: inspection.adapter.plugins || [],
+        alternatives: inspection.adapter.alternatives || {},
+        mapping_profiles: inspection.adapter.mappingProfiles || {},
+      }, null, 2)
+    );
+  }
   const mappings = { format_version: 2, items: {} };
   const itemTexture = {
     resource_pack_name: 'Dazen Converted Resource Pack',
@@ -521,6 +587,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
         modelRef: record.modelRef,
         is3d: !!icon.is3d,
         plugin: record.hint?.plugin || null,
+        stateModels: record.stateModels || record.hint?.stateModels || null,
       },
     });
   }
@@ -557,6 +624,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
       model: item.modelRef,
       bedrock_identifier: item.bedrockIdentifier || null,
       texture: item.texturePath || null,
+      state_models: item.stateModels || item.hint?.stateModels || null,
       reason: item.reason,
     })), null, 2));
   }
