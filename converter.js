@@ -243,6 +243,7 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     );
   }
   let metadata = null;
+  let encryptedResources = false;
 
   if (expectedEdition === 'java') {
     if (!names.some(n => n.startsWith('assets/'))) {
@@ -306,6 +307,31 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
       return invalidInspection(zip, expectedEdition, 'manifest.json is not valid JSON.', detectedEdition, rootPrefix);
     }
 
+    const protectedCandidates = [
+      rootPrefix + 'textures/item_texture.json',
+      rootPrefix + 'contents.json',
+    ];
+
+    for (const protectedPath of protectedCandidates) {
+      const protectedFile = zip.file(protectedPath);
+      if (!protectedFile) continue;
+
+      try {
+        const bytes = await protectedFile.async('uint8array');
+        const sample = new TextDecoder().decode(bytes.slice(0, 96)).trimStart();
+        if (sample && !sample.startsWith('{') && !sample.startsWith('[')) {
+          encryptedResources = true;
+          break;
+        }
+      } catch {}
+    }
+
+    if (encryptedResources) {
+      warnings.push(
+        'This Bedrock resource pack appears to use encrypted/protected content. The pack structure can be detected, but protected textures/models cannot be safely reverse-converted.'
+      );
+    }
+
     if (metadata?.format_version !== 2) {
       warnings.push(`manifest.json format_version is ${metadata?.format_version ?? 'missing'}; version 2 is expected.`);
     }
@@ -333,6 +359,7 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     containerPath,
     zip,
     metadata,
+    encryptedResources,
     names,
     warnings,
     adapter,
@@ -359,6 +386,15 @@ export async function convertPack({
   if (!inspection?.valid) throw new Error('A valid scanned source pack is required.');
 
   const sourceEdition = direction === 'java-to-bedrock' ? 'java' : 'bedrock';
+  if (
+    direction === 'bedrock-to-java' &&
+    inspection.encryptedResources
+  ) {
+    throw new Error(
+      'This Bedrock pack uses encrypted/protected resource content. Its wrapper and manifest are detectable, but the protected textures/models cannot be reverse-converted safely.'
+    );
+  }
+
   if (inspection.detectedEdition !== sourceEdition) {
     throw new Error(`Direction expects a ${capitalize(sourceEdition)} source pack.`);
   }
