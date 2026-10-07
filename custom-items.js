@@ -727,13 +727,19 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
         : 'unresolved',
       reason: mapped
         ? (
-            icon.is3d
+            equipmentProfile(record)
               ? (
-                  renderedModelIcon
-                    ? '3D Java model rendered into a model-specific 2D Bedrock inventory icon. Full held/attachable geometry conversion is still pending.'
-                    : '3D Java model could not be rendered, so its shared texture atlas is being used as a fallback.'
+                  icon.is3d
+                    ? 'Geyser v2 equippable/armor mapping generated with a model-specific inventory icon. Full worn Bedrock geometry/attachable conversion is still pending.'
+                    : 'Geyser v2 equippable/armor mapping generated with equipment slot and Bedrock armor options.'
                 )
-              : 'Geyser custom item mapping generated.'
+              : icon.is3d
+                ? (
+                    renderedModelIcon
+                      ? '3D Java model rendered into a model-specific 2D Bedrock inventory icon. Full held/attachable geometry conversion is still pending.'
+                      : '3D Java model could not be rendered, so its shared texture atlas is being used as a fallback.'
+                  )
+                : 'Geyser custom item mapping generated.'
           )
         : 'Texture converted, but server-side Geyser mapping needs review.',
       sourceBlob: iconBlob,
@@ -772,10 +778,12 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
     output.file('dazen/GEYSER_SETUP.txt', [
       'Dazen Texture Pack Converter - Geyser custom items',
       '',
+      'Mappings use Geyser custom-items format_version 2.',
       '1. Put the generated .mcpack/.zip resource pack in Geyser\'s packs folder.',
       '2. Put geyser_custom_mappings.json in Geyser\'s custom_mappings folder.',
-      '3. Ensure Geyser custom content is enabled.',
+      '3. Set enable-custom-content: true in Geyser configuration.',
       '4. Restart Geyser/server and test every custom item.',
+      '5. Armor/equippable definitions inherit vanilla equipment components when the Java base item is already armor. Non-armor wearable plugin items receive minecraft:equippable + max_stack_size mappings.',
       '',
       'Items that are listed in unresolved_custom_items.json need manual review or explicit server-side IDs.',
       '3D Java models are rendered into model-specific 2D inventory icons when possible. Full Bedrock held/attachable geometry conversion still requires additional geometry generation.',
