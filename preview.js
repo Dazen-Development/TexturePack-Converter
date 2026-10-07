@@ -20,6 +20,7 @@ const refs = {
   sourceEdition: document.querySelector('#source-edition-label'),
   targetEdition: document.querySelector('#target-edition-label'),
   list: document.querySelector('#comparison-list'),
+  comparisonHead: document.querySelector('#comparison-head'),
   empty: document.querySelector('#comparison-empty'),
   footnote: document.querySelector('#preview-footnote'),
   errorTitle: document.querySelector('#preview-error-title'),
@@ -113,7 +114,16 @@ function renderHeader() {
 
 function renderTabs() {
   const entries = job.previewEntries || [];
+  const skippedEntries = job.skippedEntries || [];
   const categoryCounts = new Map([['All', entries.length]]);
+
+  if (!entries.length && skippedEntries.length) {
+    activeCategory = 'Skipped';
+  }
+
+  if (skippedEntries.length) {
+    categoryCounts.set('Skipped', skippedEntries.length);
+  }
 
   for (const entry of entries) {
     categoryCounts.set(
@@ -124,6 +134,7 @@ function renderTabs() {
 
   const preferred = [
     'All',
+    'Skipped',
     'Blocks',
     'Items',
     'Mobs',
@@ -174,6 +185,48 @@ function renderRows() {
   objectUrls.clear();
   refs.list.innerHTML = '';
 
+  if (activeCategory === 'Skipped') {
+    if (refs.comparisonHead) refs.comparisonHead.hidden = true;
+
+    const skippedEntries = (job.skippedEntries || []).filter(entry => {
+      const haystack = [
+        entry.sourcePath,
+        entry.fileType,
+        entry.category,
+        entry.reason,
+        entry.attemptedTarget,
+        entry.output,
+        entry.code,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return !query || haystack.includes(query);
+    });
+
+    const emptyTitle = refs.empty?.querySelector('strong');
+    const emptyCopy = refs.empty?.querySelector('p');
+    if (emptyTitle) emptyTitle.textContent = 'No matching skipped files';
+    if (emptyCopy) emptyCopy.textContent = 'Try a different path, output, file type, or reason.';
+    refs.empty.hidden = skippedEntries.length > 0;
+
+    const fragment = document.createDocumentFragment();
+    for (const entry of skippedEntries) {
+      fragment.appendChild(buildSkippedRow(entry));
+    }
+    refs.list.appendChild(fragment);
+
+    requestAnimationFrame(() => {
+      for (const url of previousUrls) {
+        try { URL.revokeObjectURL(url); } catch {}
+      }
+    });
+    return;
+  }
+
+  if (refs.comparisonHead) refs.comparisonHead.hidden = false;
+
   const entries = (job.previewEntries || []).filter(entry => {
     const categoryMatch =
       activeCategory === 'All' ||
@@ -184,6 +237,7 @@ function renderRows() {
       entry.name,
       entry.sourcePath,
       entry.targetPath,
+      entry.reason,
       metadata.unicode,
       metadata.char,
       metadata.pageHex,
@@ -197,6 +251,10 @@ function renderRows() {
     return categoryMatch && (!query || haystack.includes(query));
   });
 
+  const emptyTitle = refs.empty?.querySelector('strong');
+  const emptyCopy = refs.empty?.querySelector('p');
+  if (emptyTitle) emptyTitle.textContent = 'No matching textures';
+  if (emptyCopy) emptyCopy.textContent = 'Try a different category or search term.';
   refs.empty.hidden = entries.length > 0;
 
   const fragment = document.createDocumentFragment();
@@ -210,14 +268,75 @@ function renderRows() {
 
   refs.list.appendChild(fragment);
 
-  // Revoke previous-render URLs only after the new DOM has been attached.
-  // Revoking before replacement can produce broken <img> elements while the
-  // browser is still decoding/restoring IndexedDB-backed Blob URLs.
   requestAnimationFrame(() => {
     for (const url of previousUrls) {
       try { URL.revokeObjectURL(url); } catch {}
     }
   });
+}
+
+function buildSkippedRow(entry) {
+  const row = document.createElement('article');
+  row.className = 'skipped-detail-row';
+
+  const head = document.createElement('div');
+  head.className = 'skipped-detail-head';
+
+  const badges = document.createElement('div');
+  badges.className = 'skipped-detail-badges';
+
+  const status = document.createElement('span');
+  status.className = 'skipped-detail-status';
+  status.textContent = 'Skipped';
+
+  const type = document.createElement('span');
+  type.className = 'skipped-detail-type';
+  type.textContent = [entry.category, entry.fileType]
+    .filter(Boolean)
+    .join(' · ') || 'File';
+
+  badges.append(status, type);
+
+  const path = document.createElement('code');
+  path.className = 'skipped-detail-path';
+  path.textContent = entry.sourcePath || 'Unknown source file';
+
+  head.append(badges, path);
+
+  const reason = document.createElement('div');
+  reason.className = 'skipped-detail-block skipped-detail-reason';
+
+  const reasonLabel = document.createElement('span');
+  reasonLabel.textContent = 'Why it was skipped';
+
+  const reasonText = document.createElement('p');
+  reasonText.textContent =
+    entry.reason || 'No safe conversion rule matched this source file.';
+
+  reason.append(reasonLabel, reasonText);
+
+  const output = document.createElement('div');
+  output.className = 'skipped-detail-block skipped-detail-output';
+
+  const outputLabel = document.createElement('span');
+  outputLabel.textContent = 'Conversion output';
+
+  const outputText = document.createElement('p');
+  outputText.textContent =
+    entry.output ||
+    (entry.attemptedTarget
+      ? `No output was written. Attempted target: ${entry.attemptedTarget}`
+      : 'No output file was generated for this source.');
+
+  output.append(outputLabel, outputText);
+
+  const code = document.createElement('span');
+  code.className = 'skipped-detail-code';
+  code.textContent = String(entry.code || 'skipped')
+    .replace(/-/g, ' ');
+
+  row.append(head, reason, output, code);
+  return row;
 }
 
 function buildRow(entry) {
