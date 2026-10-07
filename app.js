@@ -267,6 +267,7 @@ async function preparePreviewJob(result) {
     outputFileName: result.fileName,
     outputBlob: result.blob,
     stats: result.stats,
+    skippedEntries: result.skippedEntries || [],
     previewEntries: result.previewEntries,
     previewTruncated: result.previewTruncated,
     previewLimit: result.previewLimit,
