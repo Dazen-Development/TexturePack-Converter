@@ -1,6 +1,6 @@
 import { getUsageAnalytics } from './analytics.js';
 
-const DISCORD_GUILD_ID = '1525395816225964133';
+const DISCORD_GUILD_ID = '1550071175642619987';
 const DISCORD_WIDGET_API =
   `https://discord.com/api/guilds/${DISCORD_GUILD_ID}/widget.json`;
 const DISCORD_WIDGET_BASE =
