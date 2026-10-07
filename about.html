@@ -6,10 +6,36 @@
   <meta name="theme-color" content="#0b0d12" />
   <meta name="description" content="About Dazen Development and the developer utilities project." />
   <title>About Us · Dazen Development</title>
+  <style id="dazen-loader-critical">
+    #dazen-load-track{position:fixed;z-index:10002;top:0;left:0;right:0;height:2px;background:rgba(255,255,255,.035);pointer-events:none}
+    #dazen-load-progress{display:block;width:100%;height:100%;transform:scaleX(.05);transform-origin:left center;background:linear-gradient(90deg,#9b111e,#ef5264);box-shadow:0 0 12px rgba(239,82,100,.65);transition:transform .15s ease}
+    #dazen-page-loader{position:fixed;z-index:10001;inset:0;display:grid;place-items:center;background:#090b0f;transition:opacity .24s ease,visibility .24s ease}
+    #dazen-page-loader[hidden]{display:none}
+    #dazen-page-loader.is-leaving{opacity:0;visibility:hidden}
+    .dazen-loader-card{text-align:center;color:#f6f7fb;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+    .dazen-loader-logo-wrap{position:relative;width:86px;height:86px;margin:0 auto 18px;display:grid;place-items:center}
+    .dazen-loader-logo{width:58px;height:58px;border-radius:16px;object-fit:cover;box-shadow:0 12px 34px rgba(0,0,0,.35)}
+    .dazen-loader-ring{position:absolute;inset:0;border:2px solid rgba(255,255,255,.08);border-top-color:#d32f41;border-right-color:#d32f41;border-radius:50%;animation:dazen-spin .85s linear infinite}
+    .dazen-loader-card strong,.dazen-loader-card span{display:block}.dazen-loader-card strong{font-size:.92rem}.dazen-loader-card span{margin-top:4px;color:#858da0;font-size:.68rem}
+    @keyframes dazen-spin{to{transform:rotate(360deg)}}
+  </style>
+
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body data-page="about">
-  <div id="site-sidebar"></div>
+  
+  <div id="dazen-load-track" aria-hidden="true"><span id="dazen-load-progress"></span></div>
+  <div id="dazen-page-loader" role="status" aria-live="polite">
+    <div class="dazen-loader-card">
+      <div class="dazen-loader-logo-wrap">
+        <span class="dazen-loader-ring"></span>
+        <img class="dazen-loader-logo" src="https://avatars.githubusercontent.com/u/317466458?v=4" alt="" width="58" height="58" />
+      </div>
+      <strong>Dazen Development</strong>
+      <span id="dazen-load-text">Loading Dazen utilities…</span>
+    </div>
+  </div>
+<div id="site-sidebar"></div>
   <div class="ambient ambient-one" aria-hidden="true"></div>
   <div class="ambient ambient-two" aria-hidden="true"></div>
 
