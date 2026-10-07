@@ -136,59 +136,150 @@ function installSidebar() {
   });
 }
 
+const LOAD_SESSION_KEY = 'dazen-initial-load-complete';
+
+function hasCompletedInitialLoad() {
+  try {
+    return sessionStorage.getItem(LOAD_SESSION_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markInitialLoadComplete() {
+  try {
+    sessionStorage.setItem(LOAD_SESSION_KEY, '1');
+  } catch {}
+}
+
 function pageLoaderElements() {
   return {
     overlay: document.querySelector('#dazen-page-loader'),
-    bar: document.querySelector('#dazen-load-progress'),
+    initialBar: document.querySelector('#dazen-load-progress'),
+    navTrack: document.querySelector('#dazen-nav-load-track'),
+    navBar: document.querySelector('#dazen-nav-load-progress'),
     text: document.querySelector('#dazen-load-text'),
   };
 }
 
 let progressTimer = null;
 let progressValue = 6;
+let activeLoadingMode = null;
 
 function setLoadProgress(value) {
   progressValue = Math.max(0, Math.min(100, value));
-  const { bar } = pageLoaderElements();
-  if (bar) bar.style.transform = `scaleX(${progressValue / 100})`;
+  const { initialBar, navBar } = pageLoaderElements();
+  const scale = `scaleX(${progressValue / 100})`;
+  if (initialBar) initialBar.style.transform = scale;
+  if (navBar) navBar.style.transform = scale;
 }
 
-function startPageLoading(message = 'Loading Dazen utilities…') {
-  const { overlay, text } = pageLoaderElements();
-  document.documentElement.classList.add('dazen-loading');
-  if (overlay) overlay.hidden = false;
-  if (text) text.textContent = message;
-
+function beginProgressLoop() {
   clearInterval(progressTimer);
   progressValue = Math.max(6, progressValue);
   setLoadProgress(progressValue);
 
   progressTimer = setInterval(() => {
-    const remaining = 91 - progressValue;
-    if (remaining <= 0.5) return;
-    progressValue += Math.max(.35, remaining * .055);
+    const remaining = 92 - progressValue;
+    if (remaining <= 0.4) return;
+    progressValue += Math.max(.3, remaining * .055);
     setLoadProgress(progressValue);
   }, 120);
 }
 
-function finishPageLoading() {
+function startInitialLoading(message = 'Loading Dazen utilities…') {
+  activeLoadingMode = 'initial';
+  const { overlay, navTrack, text } = pageLoaderElements();
+
+  document.documentElement.classList.add('dazen-initial-loading');
+  document.documentElement.classList.remove('dazen-route-loading');
+
+  if (navTrack) navTrack.hidden = true;
+  if (overlay) {
+    overlay.hidden = false;
+    overlay.classList.remove('is-leaving');
+  }
+  if (text) text.textContent = message;
+
+  beginProgressLoop();
+}
+
+function startNavigationLoading() {
+  activeLoadingMode = 'navigation';
+  const { overlay, navTrack } = pageLoaderElements();
+
+  // Once the user has entered the site, internal page changes never show the
+  // fullscreen loader again. Only the thin browser-style top progress line.
+  markInitialLoadComplete();
+  document.documentElement.classList.remove('dazen-initial-loading');
+  document.documentElement.classList.add('dazen-route-loading');
+
+  if (overlay) overlay.hidden = true;
+  if (navTrack) navTrack.hidden = false;
+
+  progressValue = 6;
+  beginProgressLoop();
+}
+
+function finishInitialLoading() {
   clearInterval(progressTimer);
   progressTimer = null;
   setLoadProgress(100);
 
-  const { overlay } = pageLoaderElements();
+  const { overlay, navTrack } = pageLoaderElements();
+  markInitialLoadComplete();
 
   setTimeout(() => {
-    document.documentElement.classList.remove('dazen-loading');
+    document.documentElement.classList.remove('dazen-initial-loading');
     document.documentElement.classList.add('dazen-loaded');
+
     if (overlay) overlay.classList.add('is-leaving');
 
     setTimeout(() => {
-      if (overlay) overlay.hidden = true;
-      if (overlay) overlay.classList.remove('is-leaving');
+      if (overlay) {
+        overlay.hidden = true;
+        overlay.classList.remove('is-leaving');
+      }
+      if (navTrack) navTrack.hidden = true;
       setLoadProgress(0);
+      activeLoadingMode = null;
     }, 260);
   }, 120);
+}
+
+function finishNavigationLoading() {
+  clearInterval(progressTimer);
+  progressTimer = null;
+  setLoadProgress(100);
+
+  const { navTrack, overlay } = pageLoaderElements();
+  if (overlay) overlay.hidden = true;
+
+  setTimeout(() => {
+    document.documentElement.classList.remove('dazen-route-loading');
+    document.documentElement.classList.add('dazen-loaded');
+
+    if (navTrack) {
+      navTrack.classList.add('is-complete');
+      setTimeout(() => {
+        navTrack.hidden = true;
+        navTrack.classList.remove('is-complete');
+        setLoadProgress(0);
+        activeLoadingMode = null;
+      }, 220);
+    } else {
+      setLoadProgress(0);
+      activeLoadingMode = null;
+    }
+  }, 80);
+}
+
+function finishCurrentLoading() {
+  if (activeLoadingMode === 'initial') {
+    finishInitialLoading();
+  } else {
+    finishNavigationLoading();
+  }
 }
 
 function installNavigationLoader() {
@@ -213,32 +304,54 @@ function installNavigationLoader() {
     if (target.origin !== location.origin) return;
     if (target.href === location.href) return;
 
-    startPageLoading('Opening ' + (link.textContent.trim() || 'page') + '…');
+    startNavigationLoading();
   }, true);
 }
 
 function installLoadLifecycle() {
-  startPageLoading();
+  const firstEntry = !hasCompletedInitialLoad();
+
+  if (firstEntry) {
+    startInitialLoading();
+  } else {
+    // This document was reached from another internal page. The early inline
+    // bootstrap already prevents the fullscreen overlay from flashing.
+    startNavigationLoading();
+  }
+
+  const complete = () => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(finishCurrentLoading);
+    });
+  };
 
   if (document.readyState === 'complete') {
-    requestAnimationFrame(finishPageLoading);
+    complete();
   } else {
-    addEventListener('load', () => {
-      // Give fonts/images one frame to settle before revealing the app.
-      requestAnimationFrame(() => requestAnimationFrame(finishPageLoading));
-    }, { once: true });
+    addEventListener('load', complete, { once: true });
 
-    // Never trap the user behind the loading screen if one third-party
-    // resource takes too long or fails to fire a normal load completion.
+    // Do not leave either loading mode stuck because of a slow/failed
+    // third-party resource.
     setTimeout(() => {
-      if (document.documentElement.classList.contains('dazen-loading')) {
-        finishPageLoading();
+      if (
+        document.documentElement.classList.contains('dazen-initial-loading') ||
+        document.documentElement.classList.contains('dazen-route-loading')
+      ) {
+        finishCurrentLoading();
       }
     }, 9000);
   }
 
   addEventListener('pageshow', event => {
-    if (event.persisted) finishPageLoading();
+    if (event.persisted) {
+      if (hasCompletedInitialLoad()) {
+        activeLoadingMode = 'navigation';
+        finishNavigationLoading();
+      } else {
+        activeLoadingMode = 'initial';
+        finishInitialLoading();
+      }
+    }
   });
 }
 
