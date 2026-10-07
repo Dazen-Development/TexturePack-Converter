@@ -121,6 +121,10 @@ async function parseItemsAdder(zip, rawNames, pathMap) {
           customModelData: legacyCmd,
           modelRef: modelPath ? qualify(modelPath, namespace) : null,
           textureRefs: iaTextureCandidates(namespace, item),
+          equipmentSlot:
+            item?.behaviours?.hat === true
+              ? 'head'
+              : null,
           handheld: /(?:sword|axe|pickaxe|shovel|hoe|mace|bow|crossbow|rod|staff|spear|hammer|dagger)/i.test(itemId),
         });
       }
@@ -304,6 +308,10 @@ async function parseOraxen(zip, rawNames, pathMap) {
           blocking: typeof pack.blocking_model === 'string' ? qualify(pack.blocking_model, 'minecraft') : null,
           cast: typeof pack.cast_model === 'string' ? qualify(pack.cast_model, 'minecraft') : null,
         },
+        equipmentSlot:
+          item?.Mechanics?.hat?.enabled === true
+            ? 'head'
+            : null,
         handheld: /(?:sword|axe|pickaxe|shovel|hoe|mace|bow|crossbow|rod|staff|spear|hammer|dagger)/i.test(itemId),
       });
     }
