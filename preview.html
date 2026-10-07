@@ -74,12 +74,6 @@
   </header>
 
   <main class="shell preview-main">
-    <section id="preview-loading" class="preview-state-card">
-      <div class="preview-spinner"></div>
-      <h1>Loading conversion preview…</h1>
-      <p>Reading the locally stored conversion result from your browser.</p>
-    </section>
-
     <section id="preview-missing" class="preview-state-card" hidden>
       <span class="empty-icon">!</span>
       <h1 id="preview-error-title">Conversion preview not found</h1>
@@ -147,11 +141,9 @@
     window.__dazenPreviewReady = false;
     setTimeout(() => {
       if (window.__dazenPreviewBooted) return;
-      const loading = document.getElementById('preview-loading');
       const missing = document.getElementById('preview-missing');
       const title = document.getElementById('preview-error-title');
       const detail = document.getElementById('preview-error-detail');
-      if (loading) loading.hidden = true;
       if (missing) missing.hidden = false;
       if (title) title.textContent = 'Preview script did not start';
       if (detail) {
@@ -159,7 +151,7 @@
       }
     }, 7000);
   </script>
-  <script type="module" src="./preview.js?v=20261007-3"></script>
   <script type="module" src="./site-shell.js"></script>
+  <script type="module" src="./preview.js?v=20261007-4"></script>
 </body>
 </html>
