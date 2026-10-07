@@ -33,28 +33,181 @@ export async function readFileWithProgress(file, onProgress = () => {}) {
   });
 }
 
+function packRootCandidates(names, marker) {
+  const markerLower = marker.toLowerCase();
+  const suffix = '/' + markerLower;
+  const roots = new Set();
+
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    if (lower === markerLower) {
+      roots.add('');
+    } else if (lower.endsWith(suffix)) {
+      roots.add(name.slice(0, -marker.length));
+    }
+  }
+
+  return [...roots];
+}
+
+function scorePackRoot(names, root, edition) {
+  let score = 1000;
+  let files = 0;
+
+  for (const name of names) {
+    if (!name.startsWith(root)) continue;
+    const normalized = name.slice(root.length);
+    if (!normalized) continue;
+    files++;
+
+    if (edition === 'java') {
+      if (/^assets\//i.test(normalized)) score += 2;
+      if (/^assets\/[^/]+\/textures\/.+\.(png|tga)$/i.test(normalized)) score += 3;
+      if (/^assets\/[^/]+\/models\/.+\.json$/i.test(normalized)) score += 4;
+      if (/^assets\/minecraft\/models\/item\/[^/]+\.json$/i.test(normalized)) score += 8;
+      if (/^assets\/[^/]+\/items\/.+\.json$/i.test(normalized)) score += 8;
+    } else {
+      if (/^textures\//i.test(normalized)) score += 4;
+      if (/^textures\/item_texture\.json$/i.test(normalized)) score += 25;
+      if (/^attachables\/.+\.json$/i.test(normalized)) score += 7;
+      if (/^models\/entity\/.+\.json$/i.test(normalized)) score += 7;
+      if (/^animations?\//i.test(normalized)) score += 3;
+    }
+  }
+
+  // Prefer richer pack roots and avoid accidentally selecting a tiny nested
+  // metadata-only pack when several candidates exist.
+  score += Math.min(files, 1000);
+  score -= root.split('/').filter(Boolean).length;
+
+  return score;
+}
+
+function findBestRootFor(names, marker, edition) {
+  const candidates = packRootCandidates(names, marker);
+  if (!candidates.length) return null;
+
+  return candidates
+    .map(root => ({ root, score: scorePackRoot(names, root, edition) }))
+    .sort((a, b) => b.score - a.score)[0].root;
+}
+
+async function findNestedPackCandidate(zip, rawNames, expectedEdition) {
+  const marker = expectedEdition === 'java' ? 'pack.mcmeta' : 'manifest.json';
+  const candidates = rawNames
+    .filter(name => /\.(?:mcpack|zip)$/i.test(name))
+    .map(name => {
+      const lower = name.toLowerCase();
+      let preference = 0;
+      if (expectedEdition === 'bedrock' && /(?:^|\/)geyser\/packs\//i.test(name)) preference += 300;
+      if (expectedEdition === 'bedrock' && /(?:^|\/)resource_packs\//i.test(name)) preference += 220;
+      if (expectedEdition === 'java' && /(?:^|\/)rss\//i.test(name)) preference += 200;
+      if (/\.mcpack$/i.test(lower)) preference += 80;
+      return { name, preference };
+    })
+    .sort((a, b) => b.preference - a.preference)
+    .slice(0, 16);
+
+  let best = null;
+
+  for (const candidate of candidates) {
+    const file = zip.file(candidate.name);
+    if (!file) continue;
+
+    try {
+      const bytes = await file.async('uint8array');
+      if (bytes.byteLength > LIMITS.maxArchiveBytes) continue;
+
+      const nestedZip = await window.JSZip.loadAsync(bytes, { createFolders: true });
+      const nestedNames = Object.keys(nestedZip.files)
+        .filter(name => !nestedZip.files[name].dir);
+
+      if (!nestedNames.length || nestedNames.length > LIMITS.maxEntries) continue;
+      if (nestedNames.some(isUnsafePath)) continue;
+
+      const root = findBestRootFor(
+        nestedNames,
+        marker,
+        expectedEdition
+      );
+      if (root === null) continue;
+
+      const score =
+        candidate.preference +
+        scorePackRoot(nestedNames, root, expectedEdition);
+
+      if (!best || score > best.score) {
+        best = {
+          path: candidate.name,
+          zip: nestedZip,
+          rawNames: nestedNames,
+          rootPrefix: root,
+          score,
+        };
+      }
+    } catch {
+      // A .zip/.mcpack in a vendor bundle is not necessarily a resource pack.
+      // Ignore non-pack nested archives and continue scoring other candidates.
+    }
+  }
+
+  return best;
+}
+
 export async function inspectPack(arrayBuffer, expectedEdition) {
   if (!window.JSZip) throw new Error('ZIP engine did not load. Check your internet connection and reload the page.');
-  const zip = await window.JSZip.loadAsync(arrayBuffer, { createFolders: true });
-  const rawNames = Object.keys(zip.files).filter(name => !zip.files[name].dir);
+  let zip = await window.JSZip.loadAsync(arrayBuffer, { createFolders: true });
+  let rawNames = Object.keys(zip.files).filter(name => !zip.files[name].dir);
+  let containerPath = null;
 
   if (rawNames.length > LIMITS.maxEntries) {
     throw new Error(`Archive contains ${rawNames.length.toLocaleString()} files; the safety limit is ${LIMITS.maxEntries.toLocaleString()}.`);
   }
   if (rawNames.some(isUnsafePath)) throw new Error('Archive contains unsafe relative paths and was rejected.');
 
-  const javaRoot = findRootFor(rawNames, 'pack.mcmeta');
-  const bedrockRoot = findRootFor(rawNames, 'manifest.json');
-  let detectedEdition = javaRoot !== null ? 'java' : bedrockRoot !== null ? 'bedrock' : null;
-  let rootPrefix = detectedEdition === 'java' ? javaRoot : detectedEdition === 'bedrock' ? bedrockRoot : '';
+  let javaRoot = findBestRootFor(rawNames, 'pack.mcmeta', 'java');
+  let bedrockRoot = findBestRootFor(rawNames, 'manifest.json', 'bedrock');
+
+  // Vendor downloads frequently wrap the actual resource pack inside a ZIP
+  // or MCPACK (for example Geyser/packs/<pack>.mcpack). Open the strongest
+  // nested candidate automatically instead of requiring the user to extract it.
+  if (javaRoot === null && bedrockRoot === null) {
+    const nested = await findNestedPackCandidate(zip, rawNames, expectedEdition);
+    if (nested) {
+      zip = nested.zip;
+      rawNames = nested.rawNames;
+      containerPath = nested.path;
+      javaRoot = findBestRootFor(rawNames, 'pack.mcmeta', 'java');
+      bedrockRoot = findBestRootFor(rawNames, 'manifest.json', 'bedrock');
+    }
+  }
+
+  let detectedEdition =
+    expectedEdition === 'java' && javaRoot !== null
+      ? 'java'
+      : expectedEdition === 'bedrock' && bedrockRoot !== null
+        ? 'bedrock'
+        : javaRoot !== null
+          ? 'java'
+          : bedrockRoot !== null
+            ? 'bedrock'
+            : null;
+
+  let rootPrefix =
+    detectedEdition === 'java'
+      ? javaRoot
+      : detectedEdition === 'bedrock'
+        ? bedrockRoot
+        : '';
+
   let adapter = null;
   let pathMap = null;
   let names = null;
 
-  // A vendor/source bundle from ItemsAdder, Nexo or Oraxen may not contain a
-  // root pack.mcmeta yet. Normalize its resource files into a virtual Java
-  // assets/... tree so the normal converter can process it.
-  if (!detectedEdition && expectedEdition === 'java') {
+  // Always inspect Java vendor architecture when Java is expected. This allows
+  // a single ZIP containing RSS + ItemsAdder + Oraxen alternatives to be
+  // normalized automatically even when one subfolder already has pack.mcmeta.
+  if (expectedEdition === 'java') {
     adapter = await detectJavaPluginBundle(zip, rawNames);
     if (adapter?.names?.length) {
       detectedEdition = 'java';
@@ -68,7 +221,7 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     return invalidInspection(
       zip,
       expectedEdition,
-      'Could not find a standard pack root or a supported ItemsAdder/Nexo/Oraxen source-pack structure.'
+      'Could not find a Java/Bedrock pack root, nested MCPACK/ZIP, or supported RSS/ItemsAdder/Nexo/Oraxen source architecture.'
     );
   }
 
@@ -84,6 +237,11 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
 
   names ||= normalizedNames(rawNames, rootPrefix);
   const warnings = [...(adapter?.warnings || [])];
+  if (containerPath) {
+    warnings.unshift(
+      `Automatically opened nested ${expectedEdition === 'bedrock' ? 'Bedrock' : 'Java'} resource pack: ${containerPath}.`
+    );
+  }
   let metadata = null;
 
   if (expectedEdition === 'java') {
@@ -98,13 +256,23 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     }
 
     if (adapter) {
-      metadata = {
+      const mappedMetaPath = adapter.pathMap?.['pack.mcmeta'];
+      if (mappedMetaPath) {
+        try {
+          metadata = JSON.parse(await zip.file(mappedMetaPath).async('string'));
+        } catch {
+          metadata = null;
+        }
+      }
+
+      metadata ||= {
         pack: {
           description: `Detected ${adapter.plugins.join(', ')} source bundle`,
         },
       };
+
       warnings.push(
-        `Source-bundle mode enabled for ${adapter.plugins.join(', ')}; generated server-side IDs that are absent from YAML will be marked unresolved instead of guessed.`
+        `Source-bundle mode enabled for ${adapter.plugins.join(', ')}; the converter selected the strongest matching architecture automatically.`
       );
     } else {
       try {
@@ -162,6 +330,7 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
     expectedEdition,
     detectedEdition,
     rootPrefix,
+    containerPath,
     zip,
     metadata,
     names,
@@ -708,14 +877,6 @@ function invalidInspection(zip, expectedEdition, error, detectedEdition = null, 
     names: [],
     counts: { files: 0, png: 0, tga: 0, mcmeta: 0 },
   };
-}
-
-function findRootFor(names, marker) {
-  if (names.includes(marker)) return '';
-  const matches = names.filter(name => name.endsWith('/' + marker));
-  const oneLevel = matches.filter(name => name.split('/').length === 2);
-  if (oneLevel.length === 1) return oneLevel[0].slice(0, -marker.length);
-  return null;
 }
 
 function normalizedNames(names, rootPrefix) {
