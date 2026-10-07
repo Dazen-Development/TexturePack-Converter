@@ -1,4 +1,5 @@
 import { actualPathFor } from './plugin-adapters.js';
+import { renderJavaItemModel } from './java-model-renderer.js';
 
 function splitId(value, defaultNamespace = 'minecraft') {
   if (!value || typeof value !== 'string') return [defaultNamespace, ''];
@@ -502,21 +503,57 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
     }
 
     const sourceBytes = await source.async('uint8array');
-    const sourceBlob = new Blob([sourceBytes], { type: 'image/png' });
+    const atlasBlob = new Blob([sourceBytes], { type: 'image/png' });
     const seed = record.hint?.id || record.itemModel || record.modelRef || icon.texturePath;
     const bedrockIdentifier = makeBedrockIdentifier(seed, usedIdentifiers);
     const slug = bedrockIdentifier.split(':')[1];
     const bedrockTexturePath = `textures/items/dazen/${slug}.png`;
 
-    if (!copiedTextures.has(icon.texturePath)) {
-      output.file(bedrockTexturePath, sourceBytes, { binary: true });
-      copiedTextures.set(icon.texturePath, bedrockTexturePath);
-    } else {
-      // Keep a stable per-item key, but let multiple mappings share the same Bedrock texture file.
+    let renderedModelBlob = null;
+    let renderedModelIcon = false;
+
+    if (icon.is3d && icon.model) {
+      try {
+        const modelNamespace =
+          splitId(record.modelRef || record.hint?.modelRef || '', record.defaultModelNamespace || record.hint?.namespace || 'minecraft')[0];
+
+        renderedModelBlob = await renderJavaItemModel({
+          model: icon.model,
+          loadTexture: async textureRef => {
+            const texturePath = texturePathFromRef(textureRef, modelNamespace);
+            const textureFile = sourceFile(inspection, texturePath);
+            if (!textureFile) return null;
+            const bytes = await textureFile.async('uint8array');
+            return new Blob([bytes], { type: 'image/png' });
+          },
+        });
+
+        renderedModelIcon = !!renderedModelBlob;
+      } catch {
+        renderedModelBlob = null;
+      }
     }
 
-    const actualBedrockTexture = copiedTextures.get(icon.texturePath);
-    itemTexture.texture_data[bedrockIdentifier] = { textures: [actualBedrockTexture.replace(/\.png$/i, '')] };
+    let iconBlob;
+    let actualBedrockTexture;
+
+    if (renderedModelBlob) {
+      const renderedBytes = new Uint8Array(await renderedModelBlob.arrayBuffer());
+      output.file(bedrockTexturePath, renderedBytes, { binary: true });
+      actualBedrockTexture = bedrockTexturePath;
+      iconBlob = renderedModelBlob;
+    } else {
+      if (!copiedTextures.has(icon.texturePath)) {
+        output.file(bedrockTexturePath, sourceBytes, { binary: true });
+        copiedTextures.set(icon.texturePath, bedrockTexturePath);
+      }
+      actualBedrockTexture = copiedTextures.get(icon.texturePath);
+      iconBlob = atlasBlob;
+    }
+
+    itemTexture.texture_data[bedrockIdentifier] = {
+      textures: [actualBedrockTexture.replace(/\.png$/i, '')],
+    };
 
     const options = {
       icon: bedrockIdentifier,
@@ -568,14 +605,22 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
       id: `custom-item:${bedrockIdentifier}`,
       name: record.displayName || titleCase(slug),
       category: 'Items',
-      sourcePath: icon.texturePath,
+      sourcePath: renderedModelIcon ? (icon.modelPath || icon.texturePath) : icon.texturePath,
       targetPath: actualBedrockTexture,
       status: mapped ? 'mapped' : 'unresolved',
       reason: mapped
-        ? (icon.is3d ? '3D Java model mapped with a 2D Bedrock icon fallback.' : 'Geyser custom item mapping generated.')
+        ? (
+            icon.is3d
+              ? (
+                  renderedModelIcon
+                    ? '3D Java model rendered into a model-specific 2D Bedrock inventory icon. Full held/attachable geometry conversion is still pending.'
+                    : '3D Java model could not be rendered, so its shared texture atlas is being used as a fallback.'
+                )
+              : 'Geyser custom item mapping generated.'
+          )
         : 'Texture converted, but server-side Geyser mapping needs review.',
-      sourceBlob,
-      targetBlob: sourceBlob,
+      sourceBlob: iconBlob,
+      targetBlob: iconBlob,
       editable: true,
       editSpec: { type: 'direct-image', targetPath: actualBedrockTexture },
       metadata: {
@@ -586,6 +631,8 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
         bedrockIdentifier,
         modelRef: record.modelRef,
         is3d: !!icon.is3d,
+        renderedModelIcon,
+        sourceTextureAtlas: icon.texturePath,
         plugin: record.hint?.plugin || null,
         stateModels: record.stateModels || record.hint?.stateModels || null,
       },
@@ -611,7 +658,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
       '4. Restart Geyser/server and test every custom item.',
       '',
       'Items that are listed in unresolved_custom_items.json need manual review or explicit server-side IDs.',
-      '3D Java models may currently use their resolved icon texture as the Bedrock inventory/held fallback.',
+      '3D Java models are rendered into model-specific 2D inventory icons when possible. Full Bedrock held/attachable geometry conversion still requires additional geometry generation.',
     ].join('\n'));
   }
 
@@ -633,7 +680,10 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
     onLog('success', `Custom items: prepared ${converted} Bedrock item icons and ${mappingCount} Geyser mappings.`);
   }
   if (threeDFallbacks) {
-    onLog('warn', `${threeDFallbacks} Java 3D item model(s) currently use a 2D Bedrock inventory/icon fallback. Full attachable geometry conversion is not yet generated by this web build.`);
+    onLog(
+      'warn',
+      `${threeDFallbacks} Java 3D item model(s) use generated 2D Bedrock inventory icons. Full held/attachable geometry conversion is not yet generated by this web build.`
+    );
   }
   if (unresolved.length) {
     onLog('warn', `${unresolved.length} custom item mapping(s) need review because the source did not expose enough server-side mapping metadata.`);
