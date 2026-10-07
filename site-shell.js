@@ -15,9 +15,27 @@ const navGroups = [
     ],
   },
   {
+    label: 'GENERATORS & PACKS',
+    items: [
+      { key: 'rank-generator', label: 'Rank Generator', href: 'https://tools.lamico.net/rank-gen', icon: 'R', badge: 'Hot', external: true },
+      { key: 'pack-generator', label: 'Pack Generator', href: 'https://tools.lamico.net/pack-gen', icon: 'P', external: true },
+      { key: 'item-pack-gen', label: 'Item Pack Gen', href: 'https://tools.lamico.net/item-pack', icon: 'I', external: true },
+      { key: 'pack-merger', label: 'Pack Merger', href: 'https://tools.lamico.net/pack-merger', icon: 'M', external: true },
+      { key: 'pack-hosting', label: 'Pack Hosting', href: 'https://tools.lamico.net/pack-host', icon: 'H', badge: 'Live', external: true },
+    ],
+  },
+  {
     label: 'CONFIG & UTILITIES',
     items: [
       { key: 'converter', label: 'Resource Pack Converter', href: './converter.html', icon: '⇄' },
+      { key: 'server-tester', label: 'Server Tester', href: 'https://tools.lamico.net/server-tester', icon: 'S', badge: 'New', external: true },
+      { key: 'server-icon-maker', label: 'Server Icon Maker', href: 'https://tools.lamico.net/server-icon-maker', icon: '◫', external: true },
+      { key: 'motd-maker', label: 'MOTD Maker', href: 'https://tools.lamico.net/motd-maker', icon: 'T', external: true },
+      { key: 'rgb-gradients', label: 'RGB Gradients', href: 'https://tools.lamico.net/rgb-gen', icon: 'RGB', external: true },
+      { key: 'circle-generator', label: 'Circle Generator', href: 'https://tools.lamico.net/circle-gen', icon: '○', external: true },
+      { key: 'item-command', label: 'Item Command', href: 'https://tools.lamico.net/item-gen', icon: '/', external: true },
+      { key: 'menu-maker', label: 'Menu Maker', href: 'https://tools.lamico.net/menu-maker', icon: '☷', external: true },
+      { key: 'votifier-tester', label: 'Votifier Tester', href: 'https://tools.lamico.net/votifier-test', icon: 'V', external: true },
     ],
   },
 ];
@@ -35,10 +53,20 @@ function currentPageKey() {
 
 function renderNavItem(item, activeKey) {
   const active = item.key === activeKey ? ' active' : '';
+  const external = item.external ? ' target="_blank" rel="noreferrer"' : '';
+  const badge = item.badge
+    ? `<span class="sidebar-nav-badge ${item.badge.toLowerCase()}">${item.badge}</span>`
+    : '';
+  const externalMark = item.external
+    ? '<span class="sidebar-nav-external" aria-hidden="true">↗</span>'
+    : '';
+
   return `
-    <a class="sidebar-nav-item${active}" href="${item.href}" data-nav="${item.key}">
+    <a class="sidebar-nav-item${active}" href="${item.href}" data-nav="${item.key}"${external}>
       <span class="sidebar-nav-icon" aria-hidden="true">${item.icon}</span>
-      <span>${item.label}</span>
+      <span class="sidebar-nav-text">${item.label}</span>
+      ${badge}
+      ${externalMark}
     </a>
   `;
 }
