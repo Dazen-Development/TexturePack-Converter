@@ -62,6 +62,111 @@ function isLikelyHandheld(baseItem, model) {
   return /(sword|axe|pickaxe|shovel|hoe|mace|bow|crossbow|fishing_rod|handheld|spear|staff|hammer|dagger)/.test(haystack);
 }
 
+const ARMOR_PROTECTION = {
+  leather_helmet: 1,
+  leather_chestplate: 3,
+  leather_leggings: 2,
+  leather_boots: 1,
+  chainmail_helmet: 2,
+  chainmail_chestplate: 5,
+  chainmail_leggings: 4,
+  chainmail_boots: 1,
+  iron_helmet: 2,
+  iron_chestplate: 6,
+  iron_leggings: 5,
+  iron_boots: 2,
+  golden_helmet: 2,
+  golden_chestplate: 5,
+  golden_leggings: 3,
+  golden_boots: 1,
+  diamond_helmet: 3,
+  diamond_chestplate: 8,
+  diamond_leggings: 6,
+  diamond_boots: 3,
+  netherite_helmet: 3,
+  netherite_chestplate: 8,
+  netherite_leggings: 6,
+  netherite_boots: 3,
+  turtle_helmet: 2,
+};
+
+function vanillaEquipmentSlot(baseItem) {
+  const id = String(baseItem || '').replace(/^minecraft:/, '').toLowerCase();
+  if (id.endsWith('_helmet') || id === 'turtle_helmet' || id === 'carved_pumpkin') return 'head';
+  if (id.endsWith('_chestplate') || id === 'elytra') return 'chest';
+  if (id.endsWith('_leggings')) return 'legs';
+  if (id.endsWith('_boots')) return 'feet';
+  return null;
+}
+
+function equipmentProfile(record) {
+  const baseId = String(record?.baseItem || '')
+    .replace(/^minecraft:/, '')
+    .toLowerCase();
+  const inheritedSlot = vanillaEquipmentSlot(record?.baseItem);
+  const explicitSlot = record?.hint?.equipmentSlot || record?.equipmentSlot || null;
+  const slot = explicitSlot || inheritedSlot;
+
+  if (!slot) return null;
+
+  const groupBySlot = {
+    head: 'itemGroup.name.helmet',
+    chest: 'itemGroup.name.chestplate',
+    legs: 'itemGroup.name.leggings',
+    feet: 'itemGroup.name.boots',
+  };
+
+  return {
+    slot,
+    inherited: !!inheritedSlot,
+    protectionValue: Number(ARMOR_PROTECTION[baseId] || 0),
+    creativeGroup: groupBySlot[slot] || null,
+  };
+}
+
+function geyserOptionsFor(record, icon, bedrockIdentifier) {
+  const equipment = equipmentProfile(record);
+  const options = {
+    icon: bedrockIdentifier,
+    display_handheld: equipment
+      ? false
+      : !!(
+          record.hint?.handheld ||
+          icon?.handheld ||
+          isLikelyHandheld(record.baseItem, icon?.model)
+        ),
+  };
+
+  if (equipment) {
+    options.creative_category = 'equipment';
+    if (equipment.creativeGroup) {
+      options.creative_group = equipment.creativeGroup;
+    }
+    if (equipment.protectionValue > 0) {
+      options.protection_value = equipment.protectionValue;
+    }
+  } else if (options.display_handheld) {
+    options.creative_category = 'items';
+  }
+
+  return options;
+}
+
+function geyserComponentsFor(record) {
+  const equipment = equipmentProfile(record);
+  if (!equipment || equipment.inherited) return null;
+
+  // Geyser v2 inherits unchanged components from the vanilla base item.
+  // Components are only injected when plugin behavior turns a non-equipment
+  // base (for example PAPER) into a wearable hat/cosmetic.
+  return {
+    'minecraft:equippable': {
+      slot: equipment.slot,
+    },
+    'minecraft:max_stack_size': 1,
+  };
+}
+
 function normalizedModelType(value) {
   return String(value || '').replace(/^minecraft:/, '');
 }
@@ -313,6 +418,7 @@ async function scanGeneratedJavaItems(inspection) {
           defaultModelNamespace: info.namespace,
           displayName: titleCase(leaf.modelRef),
           hint,
+          equipmentSlot: hint?.equipmentSlot || null,
           predicate: leaf.context?.predicate || null,
         });
       } else {
@@ -327,6 +433,7 @@ async function scanGeneratedJavaItems(inspection) {
           defaultModelNamespace: info.namespace,
           displayName: hint?.displayName || titleCase(info.path),
           hint,
+          equipmentSlot: hint?.equipmentSlot || null,
           predicate: leaf.context?.predicate || null,
         });
       }
@@ -427,6 +534,7 @@ function mergePluginHints(records, inspection) {
         defaultModelNamespace: hint.plugin === 'itemsadder' ? hint.namespace : 'minecraft',
         displayName: hint.displayName,
         hint,
+        equipmentSlot: hint.equipmentSlot || null,
         predicate: null,
         stateModels: hint.stateModels || null,
         unresolvedReason: 'Plugin config does not expose a fixed CustomModelData or item_model identifier.',
@@ -444,6 +552,7 @@ function mergePluginHints(records, inspection) {
       defaultModelNamespace: hint.plugin === 'itemsadder' ? hint.namespace : 'minecraft',
       displayName: hint.displayName,
       hint,
+      equipmentSlot: hint.equipmentSlot || null,
       predicate: null,
       stateModels: hint.stateModels || null,
     };
@@ -481,6 +590,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
   const unresolved = [];
   const usedIdentifiers = new Set();
   const copiedTextures = new Map();
+  const handledSourcePaths = new Set();
   let converted = 0;
   let threeDFallbacks = 0;
 
@@ -495,6 +605,9 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
       unresolved.push({ ...record, reason: record.unresolvedReason || 'Could not resolve an icon texture from the Java model.' });
       continue;
     }
+
+    if (icon.modelPath) handledSourcePaths.add(icon.modelPath);
+    if (icon.texturePath) handledSourcePaths.add(icon.texturePath);
 
     const source = sourceFile(inspection, icon.texturePath);
     if (!source) {
@@ -521,6 +634,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
           model: icon.model,
           loadTexture: async textureRef => {
             const texturePath = texturePathFromRef(textureRef, modelNamespace);
+            handledSourcePaths.add(texturePath);
             const textureFile = sourceFile(inspection, texturePath);
             if (!textureFile) return null;
             const bytes = await textureFile.async('uint8array');
@@ -555,20 +669,20 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
       textures: [actualBedrockTexture.replace(/\.png$/i, '')],
     };
 
-    const options = {
-      icon: bedrockIdentifier,
-      display_handheld: !!(record.hint?.handheld || icon.handheld || isLikelyHandheld(record.baseItem, icon.model)),
-    };
+    const options = geyserOptionsFor(record, icon, bedrockIdentifier);
+    const components = geyserComponentsFor(record);
 
     let mapped = false;
     if (record.mappingType === 'legacy' && record.baseItem && Number.isFinite(record.customModelData)) {
-      pushMapping(mappings, record.baseItem, {
+      const definition = {
         type: 'legacy',
         custom_model_data: record.customModelData,
         bedrock_identifier: bedrockIdentifier,
         display_name: record.displayName,
         bedrock_options: options,
-      });
+      };
+      if (components) definition.components = components;
+      pushMapping(mappings, record.baseItem, definition);
       mapped = true;
     } else if (
       record.mappingType === 'definition' &&
@@ -584,6 +698,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
         bedrock_options: options,
       };
       if (record.predicate) def.predicate = record.predicate;
+      if (components) def.components = components;
       pushMapping(mappings, record.baseItem, def);
       mapped = true;
     } else {
@@ -637,6 +752,9 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
         sourceTextureAtlas: icon.texturePath,
         plugin: record.hint?.plugin || null,
         stateModels: record.stateModels || record.hint?.stateModels || null,
+        equipment: equipmentProfile(record),
+        geyserOptions: options,
+        geyserComponents: components,
       },
     });
   }
@@ -699,6 +817,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
     unresolved,
     previewEntries,
     threeDFallbacks,
+    handledSourcePaths: [...handledSourcePaths],
   };
 }
 
