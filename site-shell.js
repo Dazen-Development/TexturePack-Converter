@@ -403,12 +403,10 @@ function ensureFloatingThemeToggle() {
   toggle.setAttribute('aria-label', 'Switch to light mode');
   toggle.setAttribute('aria-pressed', 'false');
   toggle.innerHTML = `
-    <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">☀</span>
-    <span class="theme-toggle-track" aria-hidden="true">
-      <span class="theme-toggle-knob"></span>
+    <span class="theme-toggle-icon-stack" aria-hidden="true">
+      <span class="theme-toggle-icon theme-toggle-sun">☀</span>
+      <span class="theme-toggle-icon theme-toggle-moon">☾</span>
     </span>
-    <span class="theme-toggle-icon theme-toggle-moon" aria-hidden="true">☾</span>
-    <span class="theme-toggle-label">Dark</span>
   `;
 
   document.body.appendChild(toggle);
