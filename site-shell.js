@@ -355,8 +355,65 @@ function installLoadLifecycle() {
   });
 }
 
+const THEME_STORAGE_KEY = 'dazen-theme';
+
+function getSavedTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    return saved === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+function applyTheme(theme) {
+  const normalized = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = normalized;
+
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) {
+    meta.setAttribute(
+      'content',
+      normalized === 'light' ? '#f4f6fa' : '#0b0d12'
+    );
+  }
+
+  document.querySelectorAll('[data-theme-toggle]').forEach(toggle => {
+    const light = normalized === 'light';
+    toggle.classList.toggle('is-light', light);
+    toggle.setAttribute('aria-pressed', String(light));
+    toggle.setAttribute(
+      'aria-label',
+      light ? 'Switch to dark mode' : 'Switch to light mode'
+    );
+
+    const label = toggle.querySelector('.theme-toggle-label');
+    if (label) label.textContent = light ? 'Light' : 'Dark';
+  });
+}
+
+function installThemeToggle() {
+  applyTheme(getSavedTheme());
+
+  document.querySelectorAll('[data-theme-toggle]').forEach(toggle => {
+    toggle.addEventListener('click', () => {
+      const next =
+        document.documentElement.dataset.theme === 'light'
+          ? 'dark'
+          : 'light';
+
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, next);
+      } catch {}
+
+      applyTheme(next);
+    });
+  });
+}
+
 function initShell() {
   installSidebar();
+  installThemeToggle();
   installNavigationLoader();
   installLoadLifecycle();
 }
