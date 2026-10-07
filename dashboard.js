@@ -11,7 +11,7 @@ const refs = {
   conversions: document.querySelector('#stat-conversions'),
   generations: document.querySelector('#stat-generations'),
   toolOpens: document.querySelector('#stat-tool-opens'),
-  pageViews: document.querySelector('#stat-page-views'),
+  uniqueVisitors: document.querySelector('#stat-unique-visitors'),
   guildName: document.querySelector('#discord-guild-name'),
   guildOnline: document.querySelector('#discord-online-copy'),
   memberStrip: document.querySelector('#discord-member-strip'),
@@ -30,7 +30,7 @@ function renderLocalStats() {
   if (refs.conversions) refs.conversions.textContent = number(usage.conversions);
   if (refs.generations) refs.generations.textContent = number(usage.generations);
   if (refs.toolOpens) refs.toolOpens.textContent = number(usage.toolOpens);
-  if (refs.pageViews) refs.pageViews.textContent = number(usage.pageViews);
+  if (refs.uniqueVisitors) refs.uniqueVisitors.textContent = number(usage.uniqueVisitors);
 }
 
 function currentDiscordTheme() {
