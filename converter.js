@@ -159,6 +159,7 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
   let zip = await window.JSZip.loadAsync(arrayBuffer, { createFolders: true });
   let rawNames = Object.keys(zip.files).filter(name => !zip.files[name].dir);
   let containerPath = null;
+  let outerVendorAdapter = null;
 
   if (rawNames.length > LIMITS.maxEntries) {
     throw new Error(`Archive contains ${rawNames.length.toLocaleString()} files; the safety limit is ${LIMITS.maxEntries.toLocaleString()}.`);
@@ -167,6 +168,10 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
 
   let javaRoot = findBestRootFor(rawNames, 'pack.mcmeta', 'java');
   let bedrockRoot = findBestRootFor(rawNames, 'manifest.json', 'bedrock');
+
+  if (expectedEdition === 'java') {
+    outerVendorAdapter = await detectJavaPluginBundle(zip, rawNames);
+  }
 
   // Vendor downloads frequently wrap the actual resource pack inside a ZIP
   // or MCPACK (for example Geyser/packs/<pack>.mcpack). Open the strongest
@@ -209,11 +214,26 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
   // normalized automatically even when one subfolder already has pack.mcmeta.
   if (expectedEdition === 'java') {
     adapter = await detectJavaPluginBundle(zip, rawNames);
+
     if (adapter?.names?.length) {
       detectedEdition = 'java';
       rootPrefix = '';
       pathMap = adapter.pathMap;
       names = adapter.names;
+    } else if (containerPath && outerVendorAdapter) {
+      // Keep plugin config metadata from the outer vendor ZIP while using the
+      // nested RSS/Java pack as the actual normalized resource tree. This is
+      // important for data that RSS does not encode directly, such as
+      // ItemsAdder custom armor sets and wearable behavior.
+      adapter = {
+        ...outerVendorAdapter,
+        pathMap: null,
+        names: [],
+        warnings: [
+          ...(outerVendorAdapter.warnings || []),
+          `Plugin metadata from the outer vendor archive was merged with nested resource pack ${containerPath}.`,
+        ],
+      };
     }
   }
 
@@ -236,6 +256,7 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
   }
 
   names ||= normalizedNames(rawNames, rootPrefix);
+  names = names.filter(name => !isNoisePath(name));
   const warnings = [...(adapter?.warnings || [])];
   if (containerPath) {
     warnings.unshift(
@@ -258,9 +279,15 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
 
     if (adapter) {
       const mappedMetaPath = adapter.pathMap?.['pack.mcmeta'];
-      if (mappedMetaPath) {
+      const standardMetaPath =
+        rootPrefix !== null && zip.file((rootPrefix || '') + 'pack.mcmeta')
+          ? (rootPrefix || '') + 'pack.mcmeta'
+          : null;
+      const metaPath = mappedMetaPath || standardMetaPath;
+
+      if (metaPath) {
         try {
-          metadata = JSON.parse(await zip.file(mappedMetaPath).async('string'));
+          metadata = JSON.parse(await zip.file(metaPath).async('string'));
         } catch {
           metadata = null;
         }
@@ -273,7 +300,7 @@ export async function inspectPack(arrayBuffer, expectedEdition) {
       };
 
       warnings.push(
-        `Source-bundle mode enabled for ${adapter.plugins.join(', ')}; the converter selected the strongest matching architecture automatically.`
+        `Source-bundle metadata enabled for ${adapter.plugins.join(', ')}; the converter selected the strongest matching resource tree automatically.`
       );
     } else {
       try {
@@ -588,12 +615,8 @@ export async function convertPack({
   // originally marked as skipped, it is NOT a real skip and must not remain
   // in the final stats/report.
   const rescuedGenericPaths = new Set(
-    genericPreviewEntries
-      .filter(
-        entry =>
-          entry.status === 'skipped' &&
-          enhancedSourcePaths.has(entry.sourcePath)
-      )
+    skippedDetails
+      .filter(entry => enhancedSourcePaths.has(entry.sourcePath))
       .map(entry => entry.sourcePath)
   );
 
@@ -621,6 +644,28 @@ export async function convertPack({
       'info',
       `Specialized item/font mapping resolved ${rescuedGenericPaths.size} file(s) that generic path mapping initially marked as having no target.`
     );
+  }
+
+  const recognizedPartial = new Map(
+    customItemsResult?.recognizedPartialPaths || []
+  );
+
+  if (recognizedPartial.size) {
+    for (const detail of skippedDetails) {
+      const note = recognizedPartial.get(detail.sourcePath);
+      if (!note) continue;
+      detail.reason = note.reason;
+      detail.code = note.code || 'recognized-partial';
+      detail.output = note.output || 'Recognized as part of a custom item, but no standalone Bedrock file was generated.';
+    }
+
+    for (let i = 0; i < skipped.length; i++) {
+      const sourcePath = skipped[i].split(' — ')[0];
+      const note = recognizedPartial.get(sourcePath);
+      if (note) {
+        skipped[i] = `${sourcePath} — ${note.reason}`;
+      }
+    }
   }
 
   const previewEntries = [
@@ -1006,6 +1051,16 @@ function normalizedNames(names, rootPrefix) {
     .filter(n => n.startsWith(rootPrefix))
     .map(n => n.slice(rootPrefix.length))
     .filter(Boolean);
+}
+
+function isNoisePath(path) {
+  const leaf = String(path || '').split('/').pop()?.toLowerCase();
+  return (
+    leaf === 'desktop.ini' ||
+    leaf === 'thumbs.db' ||
+    leaf === '.ds_store' ||
+    leaf?.startsWith('._')
+  );
 }
 
 function isUnsafePath(path) {
