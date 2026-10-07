@@ -9,6 +9,13 @@
   <script>
     (() => {
       try {
+        const theme = localStorage.getItem('dazen-theme') === 'light' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = theme;
+      } catch {
+        document.documentElement.dataset.theme = 'dark';
+      }
+
+      try {
         const returning = sessionStorage.getItem('dazen-initial-load-complete') === '1';
         document.documentElement.classList.add(returning ? 'dazen-returning' : 'dazen-first-entry');
       } catch {
