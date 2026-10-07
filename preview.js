@@ -438,7 +438,9 @@ function buildRow(entry) {
           : 'Needs Mapping'
         : entry.status === 'mapped'
           ? 'Mapped'
-          : 'Compatible';
+          : entry.status === 'partial'
+            ? 'Partial'
+            : 'Compatible';
 
   status.innerHTML = '<strong></strong><span></span>';
   status.children[0].textContent = entry.edited
