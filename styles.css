@@ -1803,3 +1803,19 @@ body.has-sidebar .hero {
     grid-template-columns: 1fr;
   }
 }
+
+
+.utility-header-copy {
+  min-width: 0;
+}
+
+.utility-header-copy .section-kicker {
+  margin: 0;
+}
+
+.utility-header-title {
+  margin: 3px 0 0;
+  font-size: 1.05rem;
+  line-height: 1.1;
+  letter-spacing: -.025em;
+}
