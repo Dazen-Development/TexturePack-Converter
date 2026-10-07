@@ -46,12 +46,46 @@ function inferItemsAdderModel(namespace, itemId, item) {
   if (typeof item?.item_model === 'string') {
     return { itemModel: qualify(item.item_model, namespace), confidence: 'explicit' };
   }
+
   const graphics = item?.graphics;
-  if (graphics && typeof graphics === 'object') {
-    // Modern ItemsAdder 1.21.4+ creates a dedicated ItemModel for the item.
-    return { itemModel: `${namespace}:${itemId}`, confidence: 'inferred-modern' };
+  const resource = item?.resource;
+
+  if (
+    (graphics && typeof graphics === 'object') ||
+    (
+      resource &&
+      typeof resource === 'object' &&
+      numericOrNull(resource.model_id) == null
+    )
+  ) {
+    // ItemsAdder 4 / modern MC builds identify generated custom items through
+    // a namespaced item_model. Vendor source packs often omit the generated
+    // runtime file but keep the deterministic namespace:item_id identity.
+    return {
+      itemModel: `${namespace}:${itemId}`,
+      confidence: 'inferred-modern',
+    };
   }
+
   return { itemModel: null, confidence: null };
+}
+
+function normalizeEquipmentSlot(value) {
+  const slot = String(value || '').trim().toLowerCase();
+  if (['head', 'helmet'].includes(slot)) return 'head';
+  if (['chest', 'chestplate', 'body'].includes(slot)) return 'chest';
+  if (['legs', 'leggings'].includes(slot)) return 'legs';
+  if (['feet', 'foot', 'boots'].includes(slot)) return 'feet';
+  return null;
+}
+
+function leatherBaseForSlot(slot) {
+  return {
+    head: 'minecraft:leather_helmet',
+    chest: 'minecraft:leather_chestplate',
+    legs: 'minecraft:leather_leggings',
+    feet: 'minecraft:leather_boots',
+  }[slot] || null;
 }
 
 function qualify(value, namespace) {
@@ -109,22 +143,45 @@ async function parseItemsAdder(zip, rawNames, pathMap) {
         const modern = inferItemsAdderModel(namespace, itemId, item);
         const legacyCmd = numericOrNull(item?.resource?.model_id);
         const modelPath = item?.graphics?.model || item?.resource?.model_path || null;
+        const armor = item?.specific_properties?.armor;
+        const armorSlot =
+          normalizeEquipmentSlot(armor?.slot) ||
+          (item?.behaviours?.hat === true ? 'head' : null);
+        const armorSet =
+          typeof armor?.custom_armor === 'string'
+            ? armor.custom_armor
+            : null;
+        const armorRendering =
+          armorSet && doc?.armors_rendering?.[armorSet]
+            ? doc.armors_rendering[armorSet]
+            : null;
+        const armorLayerRefs = [
+          armorRendering?.layer_1,
+          armorRendering?.layer_2,
+        ]
+          .filter(value => typeof value === 'string')
+          .map(value => qualifyTexture(value, namespace))
+          .filter(Boolean);
+
         hints.push({
           plugin: 'itemsadder',
           id: `${namespace}:${itemId}`,
           namespace,
           itemId,
           displayName: configDisplayName(itemId, item),
-          baseItem: normMaterial(item?.material || item?.resource?.material),
+          baseItem:
+            normMaterial(item?.material || item?.resource?.material) ||
+            leatherBaseForSlot(armorSlot),
           itemModel: modern.itemModel,
-          mappingConfidence: modern.confidence || (legacyCmd != null ? 'explicit' : 'unresolved'),
+          mappingConfidence:
+            modern.confidence ||
+            (legacyCmd != null ? 'explicit' : 'unresolved'),
           customModelData: legacyCmd,
           modelRef: modelPath ? qualify(modelPath, namespace) : null,
           textureRefs: iaTextureCandidates(namespace, item),
-          equipmentSlot:
-            item?.behaviours?.hat === true
-              ? 'head'
-              : null,
+          equipmentSlot: armorSlot,
+          armorSet,
+          armorLayerRefs,
           handheld: /(?:sword|axe|pickaxe|shovel|hoe|mace|bow|crossbow|rod|staff|spear|hammer|dagger)/i.test(itemId),
         });
       }
@@ -307,6 +364,8 @@ async function parseOraxen(zip, rawNames, pathMap) {
           pulling: asArray(pack.pulling_models).map(v => qualify(v, 'minecraft')).filter(Boolean),
           blocking: typeof pack.blocking_model === 'string' ? qualify(pack.blocking_model, 'minecraft') : null,
           cast: typeof pack.cast_model === 'string' ? qualify(pack.cast_model, 'minecraft') : null,
+          charged: typeof pack.charged_model === 'string' ? qualify(pack.charged_model, 'minecraft') : null,
+          firework: typeof pack.firework_model === 'string' ? qualify(pack.firework_model, 'minecraft') : null,
         },
         equipmentSlot:
           item?.Mechanics?.hat?.enabled === true
