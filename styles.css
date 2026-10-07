@@ -2399,3 +2399,55 @@ html[data-theme="light"] #dazen-nav-load-track {
     display: none;
   }
 }
+
+
+/* Shared floating theme switch */
+.theme-toggle-floating {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 78;
+  min-height: 40px;
+  padding: 7px 10px;
+  background: rgba(13,15,20,.86);
+  border-color: rgba(255,255,255,.13);
+  box-shadow:
+    0 14px 34px rgba(0,0,0,.28),
+    inset 0 1px 0 rgba(255,255,255,.05);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.theme-toggle-floating:hover {
+  background: rgba(20,23,31,.94);
+}
+
+html[data-theme="light"] .theme-toggle-floating {
+  background: rgba(255,255,255,.88);
+  border-color: rgba(20,27,39,.12);
+  box-shadow:
+    0 14px 34px rgba(50,60,80,.14),
+    inset 0 1px 0 rgba(255,255,255,.8);
+}
+
+html[data-theme="light"] .theme-toggle-floating:hover {
+  background: rgba(255,255,255,.97);
+}
+
+body.sidebar-open .theme-toggle-floating {
+  pointer-events: none;
+}
+
+@media (max-width: 860px) {
+  .theme-toggle-floating {
+    right: 14px;
+    bottom: 14px;
+    z-index: 82;
+  }
+}
+
+@media (max-width: 640px) {
+  .theme-toggle-floating {
+    padding: 7px 9px;
+  }
+}
