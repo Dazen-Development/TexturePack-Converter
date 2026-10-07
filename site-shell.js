@@ -1,4 +1,4 @@
-import { recordPageView, recordToolOpen } from './analytics.js';
+import { recordUniqueVisitor, recordToolOpen } from './analytics.js';
 
 const ORG = {
   name: 'Dazen Development',
@@ -445,7 +445,7 @@ function initShell() {
   installSidebar();
   installThemeToggle();
 
-  recordPageView();
+  recordUniqueVisitor();
   const activeTool = currentPageKey();
   if (
     activeTool &&
