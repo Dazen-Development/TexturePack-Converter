@@ -1,3 +1,5 @@
+import { recordPageView, recordToolOpen } from './analytics.js';
+
 const ORG = {
   name: 'Dazen Development',
   avatar: 'https://avatars.githubusercontent.com/u/317466458?v=4',
@@ -6,6 +8,14 @@ const ORG = {
 };
 
 const navGroups = [
+  {
+    label: 'OVERVIEW',
+    items: [
+      { key: 'dashboard', label: 'Dashboard', href: './index.html', icon: '▦' },
+      { key: 'about', label: 'About Us', href: './about.html', icon: '◉' },
+      { key: 'privacy', label: 'Privacy Policy', href: './privacy.html', icon: '◇' },
+    ],
+  },
   {
     label: 'GENERATORS',
     items: [
@@ -434,6 +444,16 @@ function installThemeToggle() {
 function initShell() {
   installSidebar();
   installThemeToggle();
+
+  recordPageView();
+  const activeTool = currentPageKey();
+  if (
+    activeTool &&
+    !['dashboard', 'about', 'privacy'].includes(activeTool)
+  ) {
+    recordToolOpen(activeTool);
+  }
+
   installNavigationLoader();
   installLoadLifecycle();
 }
