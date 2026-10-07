@@ -6,7 +6,6 @@ const params = new URLSearchParams(location.search);
 const jobId = params.get('job');
 
 const refs = {
-  loading: document.querySelector('#preview-loading'),
   missing: document.querySelector('#preview-missing'),
   content: document.querySelector('#preview-content'),
   title: document.querySelector('#preview-title'),
@@ -46,7 +45,6 @@ async function init() {
     renderHeader();
     renderTabs();
     renderRows();
-    refs.loading.hidden = true;
     refs.content.hidden = false;
     window.__dazenPreviewReady = true;
   } catch (error) {
@@ -56,7 +54,6 @@ async function init() {
 }
 
 function showMissing(error = null) {
-  refs.loading.hidden = true;
   refs.content.hidden = true;
   refs.missing.hidden = false;
   window.__dazenPreviewReady = false;
