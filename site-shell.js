@@ -365,6 +365,151 @@ function installLoadLifecycle() {
   });
 }
 
+const TOAST_MAX_VISIBLE = 3;
+const TOAST_DEFAULT_DURATION = 5000;
+let toastSequence = 0;
+const toastQueue = [];
+
+function ensureToastContainer() {
+  let container = document.querySelector('#dazen-toast-stack');
+  if (container) return container;
+
+  container = document.createElement('div');
+  container.id = 'dazen-toast-stack';
+  container.className = 'dazen-toast-stack';
+  container.setAttribute('aria-live', 'polite');
+  container.setAttribute('aria-relevant', 'additions removals');
+  document.body.appendChild(container);
+  return container;
+}
+
+function toastIcon(type) {
+  return {
+    success: '✓',
+    error: '!',
+    warning: '!',
+    info: 'i',
+  }[type] || 'i';
+}
+
+function removeToastEntry(entry) {
+  const index = toastQueue.indexOf(entry);
+  if (index >= 0) toastQueue.splice(index, 1);
+}
+
+function dismissToast(entry, reason = 'dismissed') {
+  if (!entry || entry.dismissed) return;
+  entry.dismissed = true;
+  clearTimeout(entry.timer);
+
+  entry.element.classList.add('is-leaving');
+  entry.element.dataset.dismissReason = reason;
+
+  setTimeout(() => {
+    entry.element.remove();
+    removeToastEntry(entry);
+  }, 220);
+}
+
+function showToast({
+  type = 'info',
+  title = '',
+  message = '',
+  duration = TOAST_DEFAULT_DURATION,
+} = {}) {
+  const container = ensureToastContainer();
+  const normalizedType = ['success', 'error', 'warning', 'info'].includes(type)
+    ? type
+    : 'info';
+  const normalizedDuration = Math.max(1800, Number(duration) || TOAST_DEFAULT_DURATION);
+
+  while (toastQueue.length >= TOAST_MAX_VISIBLE) {
+    dismissToast(toastQueue[0], 'fifo');
+  }
+
+  const element = document.createElement('article');
+  element.className = `dazen-toast dazen-toast-${normalizedType}`;
+  element.dataset.toastId = String(++toastSequence);
+  element.setAttribute('role', normalizedType === 'error' ? 'alert' : 'status');
+
+  const icon = document.createElement('span');
+  icon.className = 'dazen-toast-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = toastIcon(normalizedType);
+
+  const content = document.createElement('div');
+  content.className = 'dazen-toast-content';
+
+  if (title) {
+    const heading = document.createElement('strong');
+    heading.className = 'dazen-toast-title';
+    heading.textContent = String(title);
+    content.appendChild(heading);
+  }
+
+  if (message) {
+    const copy = document.createElement('p');
+    copy.className = 'dazen-toast-message';
+    copy.textContent = String(message);
+    content.appendChild(copy);
+  }
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'dazen-toast-close';
+  close.setAttribute('aria-label', 'Dismiss notification');
+  close.textContent = '×';
+
+  const timerBar = document.createElement('span');
+  timerBar.className = 'dazen-toast-timer';
+  timerBar.style.setProperty('--toast-duration', `${normalizedDuration}ms`);
+
+  element.append(icon, content, close, timerBar);
+  container.appendChild(element);
+
+  const entry = {
+    element,
+    dismissed: false,
+    timer: null,
+  };
+
+  toastQueue.push(entry);
+
+  close.addEventListener('click', () => dismissToast(entry, 'manual'));
+  entry.timer = setTimeout(() => dismissToast(entry, 'timeout'), normalizedDuration);
+
+  requestAnimationFrame(() => element.classList.add('is-visible'));
+  return entry;
+}
+
+function installToastSystem() {
+  ensureToastContainer();
+
+  const api = {
+    show: options => showToast(options),
+    success: (message, title = 'Success', duration) =>
+      showToast({ type: 'success', title, message, duration }),
+    error: (message, title = 'Something went wrong', duration) =>
+      showToast({ type: 'error', title, message, duration }),
+    warning: (message, title = 'Heads up', duration) =>
+      showToast({ type: 'warning', title, message, duration }),
+    info: (message, title = 'Notice', duration) =>
+      showToast({ type: 'info', title, message, duration }),
+  };
+
+  window.DazenToast = api;
+
+  window.addEventListener('dazen:toast', event => {
+    showToast(event.detail || {});
+  });
+
+  // Replace non-interactive blocking browser alerts with the shared toast UI.
+  // confirm()/prompt() are intentionally left untouched because they require input.
+  window.alert = message => {
+    api.info(String(message ?? ''), 'Notice');
+  };
+}
+
 const THEME_STORAGE_KEY = 'dazen-theme';
 
 function getSavedTheme() {
@@ -444,6 +589,7 @@ function installThemeToggle() {
 function initShell() {
   installSidebar();
   installThemeToggle();
+  installToastSystem();
 
   recordUniqueVisitor();
   const activeTool = currentPageKey();
