@@ -411,6 +411,7 @@ export async function convertPack({
     fontGlyphs: 0,
   };
   const skipped = [];
+  const skippedDetails = [];
   const mappings = [];
   const occupied = new Set();
   const genericPreviewEntries = [];
@@ -446,9 +447,18 @@ export async function convertPack({
     const isPng = sourcePath.toLowerCase().endsWith('.png');
 
     if (!decision?.target) {
+      const reason = decision?.reason || 'Unsupported';
       stats.skipped++;
+      skippedDetails.push(
+        makeSkippedDetail({
+          sourcePath,
+          reason,
+          attemptedTarget: null,
+          code: 'no-safe-target',
+        })
+      );
       if (skipped.length < 200) {
-        skipped.push(`${sourcePath} — ${decision?.reason || 'unsupported'}`);
+        skipped.push(`${sourcePath} — ${reason}`);
       }
 
       if (isPng) {
@@ -459,7 +469,7 @@ export async function convertPack({
               sourcePath,
               targetPath: null,
               status: 'skipped',
-              reason: decision?.reason || 'Unsupported',
+              reason,
               bytes,
             })
           );
@@ -474,16 +484,34 @@ export async function convertPack({
 
     const target = sanitizeTargetPath(decision.target);
     if (!target) {
+      const reason = 'Generated target path was unsafe and was rejected.';
       stats.skipped++;
-      if (skipped.length < 200) skipped.push(`${sourcePath} — unsafe target path`);
+      skippedDetails.push(
+        makeSkippedDetail({
+          sourcePath,
+          reason,
+          attemptedTarget: decision.target || null,
+          code: 'unsafe-target',
+        })
+      );
+      if (skipped.length < 200) skipped.push(`${sourcePath} — ${reason}`);
       continue;
     }
 
     if (occupied.has(target)) {
+      const reason = `Another source file already claimed the output path ${target}.`;
       stats.collisions++;
       stats.skipped++;
+      skippedDetails.push(
+        makeSkippedDetail({
+          sourcePath,
+          reason,
+          attemptedTarget: target,
+          code: 'target-collision',
+        })
+      );
       if (skipped.length < 200) {
-        skipped.push(`${sourcePath} — target collision at ${target}`);
+        skipped.push(`${sourcePath} — ${reason}`);
       }
       continue;
     }
@@ -578,6 +606,12 @@ export async function convertPack({
       }
     }
 
+    for (let i = skippedDetails.length - 1; i >= 0; i--) {
+      if (rescuedGenericPaths.has(skippedDetails[i].sourcePath)) {
+        skippedDetails.splice(i, 1);
+      }
+    }
+
     onLog(
       'info',
       `Specialized item/font mapping resolved ${rescuedGenericPaths.size} file(s) that generic path mapping initially marked as having no target.`
@@ -648,6 +682,7 @@ export async function convertPack({
     fileName,
     stats,
     skipped,
+    skippedEntries: skippedDetails,
     previewEntries,
     previewTruncated,
     previewLimit: LIMITS.previewImages,
@@ -788,6 +823,52 @@ function mapBedrockToJava(path, experimentalUi) {
   return skip('No safe Java target mapping in the current architecture.');
 }
 
+function makeSkippedDetail({
+  sourcePath,
+  reason,
+  attemptedTarget = null,
+  code = 'skipped',
+}) {
+  const lower = String(sourcePath || '').toLowerCase();
+  const extensionMatch = lower.match(/\.([a-z0-9]+)$/i);
+  const extension = extensionMatch ? extensionMatch[1].toUpperCase() : 'FILE';
+
+  let category = 'Other';
+  if (lower.endsWith('pack.mcmeta') || lower.endsWith('manifest.json')) {
+    category = 'Metadata';
+  } else if (
+    lower.includes('/models/') ||
+    lower.includes('/blockstates/') ||
+    lower.includes('/attachables/') ||
+    lower.includes('/entity/')
+  ) {
+    category = 'Models / Runtime';
+  } else if (lower.includes('/font/') || lower.includes('/fonts/')) {
+    category = 'Fonts';
+  } else if (lower.includes('/gui/') || lower.includes('/ui/')) {
+    category = 'GUI';
+  } else if (lower.includes('/animation') || lower.endsWith('.mcmeta')) {
+    category = 'Animation';
+  } else if (/\.(png|tga|jpg|jpeg)$/i.test(lower)) {
+    category = 'Texture';
+  } else if (/\.json$/i.test(lower)) {
+    category = 'JSON';
+  }
+
+  return {
+    id: `skipped:${sourcePath}`,
+    sourcePath,
+    fileType: extension,
+    category,
+    reason: String(reason || 'No safe conversion rule matched this file.'),
+    attemptedTarget,
+    code,
+    output:
+      attemptedTarget
+        ? `No output written. Attempted target: ${attemptedTarget}`
+        : 'No output file was generated for this source.',
+  };
+}
 function makePreviewEntry({ sourcePath, targetPath, status, reason, bytes }) {
   const blob = new Blob([bytes], { type: 'image/png' });
   return {
