@@ -137,6 +137,7 @@ function renderTabs() {
     'Skipped',
     'Blocks',
     'Items',
+    'Armor / Wearables',
     'Mobs',
     'Fonts',
     'GUI',
