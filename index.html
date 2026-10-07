@@ -106,6 +106,145 @@
       </div>
     </section>
 
+    <section class="dashboard-section dashboard-analytics-section" aria-labelledby="dashboard-analytics-title">
+      <div class="dashboard-section-head">
+        <div>
+          <p class="section-kicker">Live dashboard</p>
+          <h2 id="dashboard-analytics-title">Usage & community</h2>
+        </div>
+        <span class="dashboard-analytics-note">Discord is live · usage totals are stored on this browser</span>
+      </div>
+
+      <div class="dashboard-metrics-grid">
+        <article class="dashboard-metric-card live-metric">
+          <div class="dashboard-metric-top">
+            <span class="dashboard-metric-icon discord">◖◗</span>
+            <span class="dashboard-metric-badge live">LIVE</span>
+          </div>
+          <strong id="stat-community-online">—</strong>
+          <span>Community online</span>
+          <small>Live Discord widget presence</small>
+        </article>
+
+        <article class="dashboard-metric-card">
+          <div class="dashboard-metric-top">
+            <span class="dashboard-metric-icon">⇄</span>
+            <span class="dashboard-metric-badge local">LOCAL</span>
+          </div>
+          <strong id="stat-conversions">0</strong>
+          <span>Successful conversions</span>
+          <small>Completed on this browser</small>
+        </article>
+
+        <article class="dashboard-metric-card">
+          <div class="dashboard-metric-top">
+            <span class="dashboard-metric-icon">✦</span>
+            <span class="dashboard-metric-badge local">LOCAL</span>
+          </div>
+          <strong id="stat-generations">0</strong>
+          <span>Generated outputs</span>
+          <small>Generator exports on this browser</small>
+        </article>
+
+        <article class="dashboard-metric-card">
+          <div class="dashboard-metric-top">
+            <span class="dashboard-metric-icon">⌘</span>
+            <span class="dashboard-metric-badge local">LOCAL</span>
+          </div>
+          <strong id="stat-tool-opens">0</strong>
+          <span>Utility opens</span>
+          <small>Tool launches on this browser</small>
+        </article>
+
+        <article class="dashboard-metric-card">
+          <div class="dashboard-metric-top">
+            <span class="dashboard-metric-icon">◫</span>
+            <span class="dashboard-metric-badge local">LOCAL</span>
+          </div>
+          <strong id="stat-page-views">0</strong>
+          <span>Page views</span>
+          <small>Dazen pages viewed on this browser</small>
+        </article>
+      </div>
+    </section>
+
+    <section class="dashboard-section community-section" aria-labelledby="community-title">
+      <div class="dashboard-section-head">
+        <div>
+          <p class="section-kicker">Community</p>
+          <h2 id="community-title">Dazen Development Discord</h2>
+        </div>
+        <span id="discord-api-status" class="discord-api-status">Connecting to Discord…</span>
+      </div>
+
+      <div class="discord-community-layout">
+        <article class="discord-community-card">
+          <div class="discord-community-brand">
+            <span class="discord-community-logo">◖◗</span>
+            <div>
+              <span class="source-label">Discord community</span>
+              <h3 id="discord-guild-name">Dazen Development</h3>
+              <p id="discord-online-copy">Loading live member presence…</p>
+            </div>
+          </div>
+
+          <p class="discord-community-copy">
+            Join the community for development updates, Minecraft tooling discussions, resource-pack help,
+            testing, feedback, and announcements for upcoming Dazen utilities.
+          </p>
+
+          <div id="discord-member-strip" class="discord-member-strip" aria-label="Discord online member preview"></div>
+
+          <div class="discord-community-actions">
+            <a
+              id="discord-community-join"
+              class="discord-community-join"
+              href="https://discord.gg/zvxHEPzr4M"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span>Join Dazen Discord</span><span>↗</span>
+            </a>
+            <a
+              class="secondary-btn inline-btn"
+              href="https://discord.com/api/guilds/1525395816225964133/widget.json"
+              target="_blank"
+              rel="noreferrer"
+            >View Widget JSON</a>
+          </div>
+
+          <div class="discord-community-meta">
+            <span><i class="status-dot success"></i> Live presence from Discord</span>
+            <span>Guild ID · 1525395816225964133</span>
+          </div>
+        </article>
+
+        <div class="discord-widget-shell">
+          <div class="discord-widget-shell-head">
+            <div>
+              <strong>Community Preview</strong>
+              <span>Official Discord server widget</span>
+            </div>
+            <span class="discord-widget-live-dot"></span>
+          </div>
+          <div class="discord-widget-frame-wrap">
+            <iframe
+              id="discord-widget-frame"
+              src="https://discord.com/widget?id=1525395816225964133&theme=dark"
+              width="350"
+              height="500"
+              allowtransparency="true"
+              frameborder="0"
+              sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+              title="Dazen Development Discord widget"
+              loading="lazy"
+            ></iframe>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
     <section class="dashboard-section">
       <div class="dashboard-section-head">
         <div>
@@ -306,6 +445,7 @@
     </div>
   </footer>
 
+  <script type="module" src="./dashboard.js"></script>
   <script type="module" src="./site-shell.js"></script>
 </body>
 </html>
