@@ -392,22 +392,44 @@ function applyTheme(theme) {
   });
 }
 
+function ensureFloatingThemeToggle() {
+  let toggle = document.querySelector('[data-theme-toggle].theme-toggle-floating');
+  if (toggle) return toggle;
+
+  toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'theme-toggle theme-toggle-floating';
+  toggle.setAttribute('data-theme-toggle', '');
+  toggle.setAttribute('aria-label', 'Switch to light mode');
+  toggle.setAttribute('aria-pressed', 'false');
+  toggle.innerHTML = `
+    <span class="theme-toggle-icon theme-toggle-sun" aria-hidden="true">☀</span>
+    <span class="theme-toggle-track" aria-hidden="true">
+      <span class="theme-toggle-knob"></span>
+    </span>
+    <span class="theme-toggle-icon theme-toggle-moon" aria-hidden="true">☾</span>
+    <span class="theme-toggle-label">Dark</span>
+  `;
+
+  document.body.appendChild(toggle);
+  return toggle;
+}
+
 function installThemeToggle() {
+  const toggle = ensureFloatingThemeToggle();
   applyTheme(getSavedTheme());
 
-  document.querySelectorAll('[data-theme-toggle]').forEach(toggle => {
-    toggle.addEventListener('click', () => {
-      const next =
-        document.documentElement.dataset.theme === 'light'
-          ? 'dark'
-          : 'light';
+  toggle.addEventListener('click', () => {
+    const next =
+      document.documentElement.dataset.theme === 'light'
+        ? 'dark'
+        : 'light';
 
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, next);
-      } catch {}
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch {}
 
-      applyTheme(next);
-    });
+    applyTheme(next);
   });
 }
 
