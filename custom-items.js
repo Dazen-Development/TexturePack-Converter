@@ -417,6 +417,7 @@ async function scanGeneratedJavaItems(inspection) {
           modelRef: leaf.modelRef,
           defaultModelNamespace: info.namespace,
           displayName: titleCase(leaf.modelRef),
+          sourceDefinitionPath: path,
           hint,
           equipmentSlot: hint?.equipmentSlot || null,
           predicate: leaf.context?.predicate || null,
@@ -432,6 +433,7 @@ async function scanGeneratedJavaItems(inspection) {
           modelRef: leaf.modelRef,
           defaultModelNamespace: info.namespace,
           displayName: hint?.displayName || titleCase(info.path),
+          sourceDefinitionPath: path,
           hint,
           equipmentSlot: hint?.equipmentSlot || null,
           predicate: leaf.context?.predicate || null,
@@ -461,6 +463,7 @@ async function scanGeneratedJavaItems(inspection) {
         legacyGroups.set(key, {
           baseItem,
           customModelData: cmd,
+          sourceDefinitionPath: path,
           primary: null,
           variants: [],
         });
@@ -492,6 +495,7 @@ async function scanGeneratedJavaItems(inspection) {
       modelRef: primary.modelRef,
       defaultModelNamespace: 'minecraft',
       displayName: titleCase(primary.modelRef),
+      sourceDefinitionPath: group.sourceDefinitionPath,
       hint: null,
       predicate: null,
       stateModels: {
@@ -508,6 +512,34 @@ async function scanGeneratedJavaItems(inspection) {
   return records;
 }
 
+function mergeStateModels(base = {}, extra = {}) {
+  const asList = value =>
+    Array.isArray(value)
+      ? value.filter(Boolean)
+      : value
+        ? [value]
+        : [];
+
+  const variants = [
+    ...asList(base.variants),
+    ...asList(extra.variants),
+  ];
+
+  const pulling = [
+    ...asList(base.pulling),
+    ...asList(extra.pulling),
+  ];
+
+  return {
+    pulling: [...new Set(pulling)],
+    blocking: extra.blocking || base.blocking || null,
+    cast: extra.cast || base.cast || null,
+    charged: extra.charged || base.charged || null,
+    firework: extra.firework || base.firework || null,
+    variants,
+  };
+}
+
 function mergePluginHints(records, inspection) {
   const hints = inspection.adapter?.itemHints || [];
   const signatures = new Set(records.map(r => [
@@ -519,6 +551,38 @@ function mergePluginHints(records, inspection) {
   ].join('|')));
 
   for (const hint of hints) {
+    const existing = records.find(record =>
+      (
+        hint.modelRef &&
+        record.modelRef &&
+        String(hint.modelRef) === String(record.modelRef)
+      ) ||
+      (
+        hint.itemModel &&
+        record.itemModel &&
+        String(hint.itemModel) === String(record.itemModel)
+      ) ||
+      (
+        Number.isFinite(hint.customModelData) &&
+        Number.isFinite(record.customModelData) &&
+        hint.baseItem &&
+        record.baseItem === hint.baseItem &&
+        Number(record.customModelData) === Number(hint.customModelData)
+      )
+    );
+
+    if (existing) {
+      existing.hint = hint;
+      existing.displayName = hint.displayName || existing.displayName;
+      existing.baseItem ||= hint.baseItem;
+      existing.equipmentSlot ||= hint.equipmentSlot || null;
+      existing.stateModels = mergeStateModels(
+        existing.stateModels,
+        hint.stateModels
+      );
+      continue;
+    }
+
     let mappingType = null;
     if (Number.isFinite(hint.customModelData)) mappingType = 'legacy';
     else if (hint.itemModel) mappingType = 'definition';
@@ -531,13 +595,15 @@ function mergePluginHints(records, inspection) {
         customModelData: null,
         itemModel: null,
         modelRef: hint.modelRef,
-        defaultModelNamespace: hint.plugin === 'itemsadder' ? hint.namespace : 'minecraft',
+        defaultModelNamespace:
+          hint.plugin === 'itemsadder' ? hint.namespace : 'minecraft',
         displayName: hint.displayName,
         hint,
         equipmentSlot: hint.equipmentSlot || null,
         predicate: null,
         stateModels: hint.stateModels || null,
-        unresolvedReason: 'Plugin config does not expose a fixed CustomModelData or item_model identifier.',
+        unresolvedReason:
+          'Plugin config does not expose a fixed CustomModelData or item_model identifier.',
       });
       continue;
     }
@@ -549,19 +615,29 @@ function mergePluginHints(records, inspection) {
       customModelData: hint.customModelData,
       itemModel: hint.itemModel,
       modelRef: hint.modelRef,
-      defaultModelNamespace: hint.plugin === 'itemsadder' ? hint.namespace : 'minecraft',
+      defaultModelNamespace:
+        hint.plugin === 'itemsadder' ? hint.namespace : 'minecraft',
       displayName: hint.displayName,
       hint,
       equipmentSlot: hint.equipmentSlot || null,
       predicate: null,
       stateModels: hint.stateModels || null,
     };
-    const sig = [record.mappingType, record.baseItem, record.customModelData, record.itemModel, record.modelRef].join('|');
+
+    const sig = [
+      record.mappingType,
+      record.baseItem,
+      record.customModelData,
+      record.itemModel,
+      record.modelRef,
+    ].join('|');
+
     if (!signatures.has(sig)) {
       signatures.add(sig);
       records.push(record);
     }
   }
+
   return records;
 }
 
@@ -591,10 +667,55 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
   const usedIdentifiers = new Set();
   const copiedTextures = new Map();
   const handledSourcePaths = new Set();
+  const recognizedPartialPaths = new Map();
   let converted = 0;
   let threeDFallbacks = 0;
 
   for (const record of records) {
+    if (record.sourceDefinitionPath) {
+      handledSourcePaths.add(record.sourceDefinitionPath);
+    }
+
+    const relatedStateRefs = [
+      ...(record.stateModels?.pulling || []),
+      record.stateModels?.blocking,
+      record.stateModels?.cast,
+      record.stateModels?.charged,
+      record.stateModels?.firework,
+      ...((record.stateModels?.variants || [])
+        .map(variant => variant?.modelRef)),
+    ].filter(Boolean);
+
+    for (const stateRef of new Set(relatedStateRefs)) {
+      const statePath = modelPathFromRef(
+        stateRef,
+        record.defaultModelNamespace || record.hint?.namespace || 'minecraft'
+      );
+
+      recognizedPartialPaths.set(statePath, {
+        code: 'runtime-state-model',
+        reason:
+          'Recognized as a runtime state model for the same custom item. Its state relationship is preserved in conversion metadata, but no separate standalone Bedrock model file is generated yet.',
+        output:
+          'No standalone output file. This model is associated with the converted custom item state.',
+      });
+    }
+
+    for (const layerRef of record.hint?.armorLayerRefs || []) {
+      const layerPath = texturePathFromRef(
+        layerRef,
+        record.hint?.namespace || 'minecraft'
+      );
+
+      recognizedPartialPaths.set(layerPath, {
+        code: 'armor-worn-layer',
+        reason:
+          'Recognized as a Java custom armor worn-layer texture. The armor item/Geyser mapping is generated, but Java armor layer PNGs do not directly map to Bedrock worn armor; full Bedrock attachable/geometry generation is still required.',
+        output:
+          'Armor item mapping generated separately; no direct Bedrock worn-layer file was emitted.',
+      });
+    }
+
     let icon = null;
     if (record.hint) icon = await resolveHintIcon(inspection, record.hint);
     if (!icon && record.modelRef) {
@@ -606,8 +727,14 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
       continue;
     }
 
-    if (icon.modelPath) handledSourcePaths.add(icon.modelPath);
-    if (icon.texturePath) handledSourcePaths.add(icon.texturePath);
+    if (icon.modelPath) {
+      handledSourcePaths.add(icon.modelPath);
+      recognizedPartialPaths.delete(icon.modelPath);
+    }
+    if (icon.texturePath) {
+      handledSourcePaths.add(icon.texturePath);
+      recognizedPartialPaths.delete(icon.texturePath);
+    }
 
     const source = sourceFile(inspection, icon.texturePath);
     if (!source) {
@@ -635,6 +762,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
           loadTexture: async textureRef => {
             const texturePath = texturePathFromRef(textureRef, modelNamespace);
             handledSourcePaths.add(texturePath);
+            recognizedPartialPaths.delete(texturePath);
             const textureFile = sourceFile(inspection, texturePath);
             if (!textureFile) return null;
             const bytes = await textureFile.async('uint8array');
@@ -719,7 +847,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
     previewEntries.push({
       id: `custom-item:${bedrockIdentifier}`,
       name: record.displayName || titleCase(slug),
-      category: 'Items',
+      category: equipmentProfile(record) ? 'Armor / Wearables' : 'Items',
       sourcePath: renderedModelIcon ? (icon.modelPath || icon.texturePath) : icon.texturePath,
       targetPath: actualBedrockTexture,
       status: mapped
@@ -826,6 +954,7 @@ export async function convertJavaCustomItems({ inspection, output, onLog = () =>
     previewEntries,
     threeDFallbacks,
     handledSourcePaths: [...handledSourcePaths],
+    recognizedPartialPaths: [...recognizedPartialPaths.entries()],
   };
 }
 
