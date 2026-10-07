@@ -2057,3 +2057,66 @@ body.has-sidebar .hero {
     grid-template-columns: 1fr;
   }
 }
+
+
+.utility-directory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.utility-directory-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 76px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.018);
+  color: var(--text);
+  text-decoration: none;
+  transition: .18s ease;
+}
+
+.utility-directory-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  background: rgba(255,255,255,.032);
+}
+
+.utility-directory-card.featured {
+  border-color: rgba(211,47,65,.25);
+  background: linear-gradient(90deg, rgba(155,17,30,.08), rgba(255,255,255,.018));
+}
+
+.utility-directory-card > div {
+  min-width: 0;
+}
+
+.utility-directory-card strong,
+.utility-directory-card small {
+  display: block;
+}
+
+.utility-directory-card strong {
+  font-size: .76rem;
+}
+
+.utility-directory-card small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .63rem;
+  line-height: 1.45;
+}
+
+.utility-directory-card > span:last-child {
+  color: var(--muted-2);
+}
+
+@media (max-width: 760px) {
+  .utility-directory-grid {
+    grid-template-columns: 1fr;
+  }
+}
