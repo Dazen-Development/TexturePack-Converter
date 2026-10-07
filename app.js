@@ -1,5 +1,6 @@
 import { readFileWithProgress, inspectPack, convertPack, formatBytes } from './converter.js';
 import { saveConversionJob, hasConversionJob, makeJobId } from './preview-storage.js';
+import { recordConversion } from './analytics.js';
 
 const state = {
   direction: 'java-to-bedrock',
@@ -207,6 +208,7 @@ async function startConversion() {
     refs.progressLabel.textContent = 'Conversion complete';
     await preparePreviewJob(result);
     renderOutput(result);
+    recordConversion();
     refs.output.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } catch (error) {
     refs.progressLabel.textContent = 'Conversion failed';
