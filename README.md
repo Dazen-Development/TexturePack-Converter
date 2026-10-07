@@ -298,3 +298,25 @@ http://localhost:8080
 - Developer: [Reynier Apurillo (@Dazeeen / Kenzooo)](https://github.com/Dazeeen)
 
 Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
+
+## Automatic source architecture detection
+
+The converter recursively inspects uploaded archives and normalizes the strongest matching pack structure automatically. End users do not need to extract or rearrange vendor downloads first.
+
+Supported Java-side layouts include:
+
+- Standard Java resource packs with `pack.mcmeta` and `assets/` at any wrapper depth.
+- RSS/vendor resource-pack variants such as `RSS/pack.mcmeta` + `RSS/assets/...`.
+- ItemsAdder `contents/...` layouts.
+- ItemsAdder legacy/vendor `data/items_packs/*.yml` and `data/resource_pack/assets/...` layouts, including configs placed directly under `data/items_packs/`.
+- Nexo `items/`, `glyphs/`, and `pack/` layouts.
+- Oraxen `items/`, `glyphs/`, and `pack/` layouts.
+- Multi-architecture vendor ZIPs containing several install alternatives. One normalized resource tree is selected automatically using the strongest verifiable mapping/resource data.
+
+Bedrock-side detection also searches nested `.mcpack` / `.zip` files. For example, a vendor archive containing `Geyser/packs/example.mcpack` or `Bedrock Server/resource_packs/example.mcpack` can be uploaded directly.
+
+Legacy Java CustomModelData item overrides are grouped by base item + CustomModelData. Bow pulling, shield blocking, fishing-rod cast, and similar predicate variants are treated as visual states of one item rather than duplicate custom items.
+
+When several source architectures are present, the converter writes `dazen/detected_source_architectures.json` into the result so the selected architecture and discovered mapping profiles can be inspected.
+
+Protected/encrypted Bedrock resource packs can be structurally detected, but encrypted textures/models are not reverse-converted because their payload cannot be read safely.
